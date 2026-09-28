@@ -51,11 +51,17 @@ function availableMarkets(game) {
   return game?.marketReference?.odds?.length ? [{ key: 'h2h', label: 'Match result', bookmaker: game.marketReference.bookmaker, odds: game.marketReference.odds }] : [];
 }
 function selectedMarket() { return availableMarkets(fixture()).find(m => m.key === $('#selectionMarket').value) || null; }
+function updateAddPickAvailability() {
+  const market = selectedMarket(); const options = (market?.odds || []).filter(item => item.price > 1); const outcome = options[Number($('#selectionOutcome').value)];
+  const priceReady = Number.isFinite(Number($('#actualOdds').value)) && Number($('#actualOdds').value) > 1;
+  const manualReady = !$('#manualSelectionWrap').hidden && $('#manualSelection').value.trim().length > 0 && priceReady;
+  $('#addToSlip').disabled = !(priceReady && outcome) && !manualReady;
+}
 function renderMarketOutcomes() {
   const market = selectedMarket(); const outcomes = (market?.odds || []).filter(item => item.price > 1);
   $('#selectionOutcome').innerHTML = outcomes.length ? outcomes.map((item, i) => `<option value="${i}">${escapeHTML(item.name)}${item.point != null ? ` ${item.point}` : ''} · ${Number(item.price).toFixed(2)}</option>`).join('') : '<option value="">No prices for this market</option>';
-  $('#selectionOutcome').disabled = !outcomes.length; $('#addToSlip').disabled = !outcomes.length;
-  updateSelectionEstimate();
+  $('#selectionOutcome').disabled = !outcomes.length;
+  updateSelectionEstimate(); updateAddPickAvailability();
 }
 async function loadBtts() {
   const f = fixture(); const button = $('#loadBtts');
@@ -125,6 +131,7 @@ function renderEmptyAnalysis() {
   $('#analysisPanel .signal-row p').textContent = 'No public social sources or team data are connected.';
   $('#selectionMarket').innerHTML = '<option value="">No markets loaded</option>'; $('#selectionMarket').disabled = true;
   $('#selectionOutcome').innerHTML = '<option value="">Select a game with matched odds</option>'; $('#selectionOutcome').disabled = true;
+  $('#manualSelectionWrap').hidden = true; $('#manualSelection').value = '';
   $('#loadBtts').hidden = true;
   $('#addToSlip').disabled = true; $('#showModel').disabled = true;
 }
@@ -147,10 +154,12 @@ function selectFixture(id) {
   outcomeSelect.innerHTML = marketOutcomes.length ? marketOutcomes.map((x, i) => `<option value="${i}">${escapeHTML(x.name)} · ${Number(x.price).toFixed(2)}</option>`).join('') : '<option value="">No matched bookmaker odds</option>';
   outcomeSelect.disabled = !marketOutcomes.length;
   outcomeSelect.dataset.marketKey = allMarkets[0]?.key || '';
+  $('#manualSelectionWrap').hidden = marketOutcomes.length > 0;
+  $('#manualSelection').value = '';
   $('#actualOdds').value = '';
   $('#addToSlip').disabled = !marketOutcomes.length;
-  $('#selectionReason').textContent = f.marketReference ? `Available bookmaker market prices are reference lines, not recommendations. Totals coverage varies; soccer BTTS can be requested for this game. Corners and card odds are not available in this connector. BetPawa may offer different prices.` : 'No odds matched this event. We will not invent a selection or price. Market availability depends on competition coverage.';
-  updateSelectionEstimate();
+  $('#selectionReason').textContent = marketOutcomes.length ? 'Reference markets are available below. Choose one, then enter the current price you see on BetPawa; its price may differ.' : 'No external odds matched this game. You can still build your slip: type the market and outcome exactly as BetPawa shows, then enter its current odds. This is your manual selection, not an app prediction.';
+  updateSelectionEstimate(); updateAddPickAvailability();
   $('#analysisPanel .callout-warning span:last-of-type').innerHTML = `<b>${f.phase === 'live' ? 'Live score from API-Sports' : 'Fixture details from API-Sports'}</b> · status ${escapeHTML(f.status || 'unknown')}${f.updatedAt ? ` · retrieved ${escapeHTML(new Date(f.updatedAt).toLocaleString())}` : ''}. This is not a forecast.`;
   const h2hOutcomes = (allMarkets.find(m => m.key === 'h2h')?.odds || []).filter(x => x.price > 1);
   const impliedTotal = h2hOutcomes.reduce((sum, x) => sum + 1 / x.price, 0);
@@ -189,11 +198,12 @@ function addSelection() {
   const f = fixture(); if (!f) return;
   const market = selectedMarket(); const options = (market?.odds || []).filter(x => x.price > 1); const pick = options[Number($('#selectionOutcome').value)];
   const actualOdds = Number($('#actualOdds').value);
-  if (!pick || !Number.isFinite(actualOdds) || actualOdds <= 1) { toast('Choose a market outcome and enter the current BetPawa decimal odds for it.'); return; }
-  const selection = `${market.label || market.key}: ${pick.name}${pick.point != null ? ` ${pick.point}` : ''}`;
-  const outcomes = options; const total = outcomes.reduce((sum, item) => sum + 1 / item.price, 0); const probability = total ? (1 / pick.price) / total : null;
-  state.slip.push({ fixture: `${f.home} vs ${f.away}`, league: f.league, sport: f.sport, market: selection, odds: actualOdds.toFixed(2), referenceOdds: Number(pick.price), referenceBookmaker: market.bookmaker || 'external bookmaker', reason: probability == null ? 'Reference price available; no probability estimate.' : `${market.bookmaker || 'External market'} reference ${Number(pick.price).toFixed(2)}; margin-removed market share ${percent(probability)}. This is market context, not an independent prediction.` });
-  saveSlip(); renderSlip(); $('#actualOdds').value = ''; updateSelectionEstimate(); $('#slipPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); toast('Added to your slip. Review the combined odds and confirm the price on BetPawa.');
+  const manualPick = $('#manualSelection').value.trim();
+  if ((!pick && !manualPick) || !Number.isFinite(actualOdds) || actualOdds <= 1) { toast('Choose a market outcome or type the BetPawa market and pick, then enter its decimal odds.'); return; }
+  const selection = pick ? `${market.label || market.key}: ${pick.name}${pick.point != null ? ` ${pick.point}` : ''}` : manualPick;
+  const total = options.reduce((sum, item) => sum + 1 / item.price, 0); const probability = pick && total ? (1 / pick.price) / total : null;
+  state.slip.push({ fixture: `${f.home} vs ${f.away}`, league: f.league, sport: f.sport, market: selection, odds: actualOdds.toFixed(2), referenceOdds: pick ? Number(pick.price) : null, referenceBookmaker: pick ? (market.bookmaker || 'external bookmaker') : null, reason: probability == null ? 'Entered from BetPawa by you. No matching external odds or independent forecast is available for this pick.' : `${market.bookmaker || 'External market'} reference ${Number(pick.price).toFixed(2)}; margin-removed market share ${percent(probability)}. This is market context, not an independent prediction.` });
+  saveSlip(); renderSlip(); $('#actualOdds').value = ''; $('#manualSelection').value = ''; updateSelectionEstimate(); updateAddPickAvailability(); $('#slipPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); toast('Added to your slip. Review the combined odds and confirm the price on BetPawa.');
 }
 function updateSlipReturn() {
   const combined = state.slip.length && state.slip.every(item => Number(item.odds) > 1) ? state.slip.reduce((product, item) => product * Number(item.odds), 1) : 0;
@@ -291,6 +301,8 @@ function init() {
   $('#selectionMarket').addEventListener('change', renderMarketOutcomes);
   $('#loadBtts').addEventListener('click', loadBtts);
   $('#actualOdds').addEventListener('input', updateSelectionEstimate);
+  $('#actualOdds').addEventListener('input', updateAddPickAvailability);
+  $('#manualSelection').addEventListener('input', updateAddPickAvailability);
   $('#slipStake').addEventListener('input', updateSlipReturn);
   $('#recordSlip').addEventListener('click', recordSlip);
   $('#budgetForm').addEventListener('submit', e => {
