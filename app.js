@@ -266,7 +266,8 @@ function init() {
     item.result = e.target.value; saveFinance(); renderFinance();
   });
   $('#copySlip').addEventListener('click', async () => {
-    const text = ['Manual BetPawa entry worksheet (not a booking code)', ...state.slip.map((s, i) => `${i + 1}. ${s.fixture} — ${s.market}${s.odds ? ` @ ${s.odds}` : ''}`), '', 'Enter and verify each selection directly on BetPawa.'];
+    const combined = state.slip.length && state.slip.every(item => Number(item.odds) > 1) ? state.slip.reduce((product, item) => product * Number(item.odds), 1) : null;
+    const text = ['Manual BetPawa entry worksheet (not a booking code)', ...state.slip.map((s, i) => `${i + 1}. ${s.fixture} — ${s.market}${s.odds ? ` @ ${s.odds}` : ''}`), ...(combined ? [`Combined decimal odds: ${combined.toFixed(2)}`] : []), '', 'Verify each price and selection directly on BetPawa; odds can change.'];
     try { await navigator.clipboard.writeText(text.join('\n')); toast('Selection details copied. BetPawa booking codes must be created on BetPawa.'); } catch { toast('Clipboard access unavailable. Copy the listed selections manually.'); }
   });
   $('#starButton').addEventListener('click', () => { const id = state.fixtureId; if (!id) return; state.watch = state.watch.includes(id) ? state.watch.filter(x => x !== id) : [...state.watch, id]; renderWatchlist(); });
