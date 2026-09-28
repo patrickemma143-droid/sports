@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0c1118" />
+  <meta name="description" content="A transparent match research and forecasting workspace." />
+  <title>Fieldnote — Match Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Main navigation">
+      <a class="brand" href="#board" aria-label="Fieldnote home">
+        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+        <span><b>fieldnote</b><small>MATCH INTELLIGENCE</small></span>
+      </a>
+      <div class="nav-label">WORKSPACE</div>
+      <nav class="main-nav">
+        <button class="nav-item active" data-view="board"><span class="nav-icon">▦</span> Match board <kbd>01</kbd></button>
+        <button class="nav-item" data-view="lab"><span class="nav-icon">⌁</span> Model lab <kbd>02</kbd></button>
+        <button class="nav-item" data-view="sources"><span class="nav-icon">◉</span> Data sources <kbd>03</kbd></button>
+        <button class="nav-item" data-view="finance"><span class="nav-icon">◷</span> Finances <kbd>04</kbd></button>
+      </nav>
+      <div class="sidebar-rule"></div>
+      <div class="nav-label">MY WATCHLIST <button id="addWatch" class="tiny-plus" aria-label="Add a game to watchlist">+</button></div>
+      <div class="watchlist" id="watchlist"></div>
+      <div class="sidebar-bottom">
+        <div class="privacy-note"><span class="privacy-dot"></span><span>Live data only<small>No feed connected</small></span></div>
+        <div class="profile"><div class="avatar">FN</div><span><b>Research desk</b><small>Personal workspace</small></span><span class="more">···</span></div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div class="breadcrumbs"><span>Workspace</span><span class="slash">/</span><b id="breadcrumbTitle">Match board</b></div>
+        <div class="top-actions"><span class="demo-label"><i></i> FEEDS CONNECTED · MODEL NOT VALIDATED</span><button class="icon-button" aria-label="Notifications">♧<span class="notification-dot"></span></button><button class="help-button" id="helpButton">How this works <span>↗</span></button></div>
+      </header>
+
+      <div class="page-view" id="view-board">
+        <section class="page-heading">
+          <div><div class="eyebrow">MATCH INTELLIGENCE <span class="eyebrow-divider">/</span> MODEL STATUS: <span class="text-amber">NOT VALIDATED</span></div><h1>Match <em>intelligence.</em></h1><p class="page-subtitle">Live scores and schedules load from connected sports feeds; forecasts and sportsbook prices are separate sources.</p></div>
+          <div class="heading-actions"><button class="button button-outline" id="loadLiveGames">↻ Load upcoming games</button><button class="button button-quiet" data-go="sources"><span class="button-icon">＋</span> Connect a data source</button></div>
+        </section>
+        <section class="metric-row" aria-label="Workspace summary">
+          <article class="metric-card"><div class="metric-top"><span>GAMES TRACKED</span><span class="metric-icon blue">▦</span></div><div class="metric-value" id="gamesTracked">00</div><div class="metric-foot"><span class="pill pill-demo">LOAD FEED TO REFRESH</span></div></article>
+          <article class="metric-card"><div class="metric-top"><span>DATA COVERAGE</span><span class="metric-icon green">◉</span></div><div class="metric-value">—<small>%</small></div><div class="metric-foot">Connect feeds to calculate</div></article>
+          <article class="metric-card"><div class="metric-top"><span>MODEL CALIBRATION</span><span class="metric-icon amber">⌁</span></div><div class="metric-value">Not <small>measured</small></div><div class="metric-foot">Requires held-out game history</div></article>
+          <article class="metric-card"><div class="metric-top"><span>BETPAWA LINK</span><span class="metric-icon muted">↗</span></div><div class="metric-value status-text">Manual</div><div class="metric-foot">No official connector configured</div></article>
+        </section>
+
+        <div class="content-grid">
+          <section class="panel fixtures-panel">
+            <div class="panel-header"><div><div class="section-kicker"><span id="fixturePhaseLabel">UPCOMING GAMES</span> <span class="count-badge">00</span></div><h2>Fixtures & analysis</h2></div><div class="filters"><div class="segmented" role="group" aria-label="Game timing"><button class="filter-button phase-button selected" data-phase="upcoming">Upcoming</button><button class="filter-button phase-button" data-phase="live">Live</button></div><div class="segmented" role="group" aria-label="Filter fixtures"><button class="filter-button selected" data-filter="all">All</button><button class="filter-button" data-filter="football">Football</button><button class="filter-button" data-filter="basketball">Basketball</button></div><button class="square-filter" id="dateFilter" aria-label="Choose fixture date">▦</button></div></div>
+            <div class="fixture-list" id="fixtureList"></div>
+            <div class="panel-foot"><span>Only provider-returned fixtures are shown</span><button data-go="sources">Set up data source <span>→</span></button></div>
+          </section>
+
+          <section class="panel analysis-panel" id="analysisPanel">
+            <div class="analysis-top"><div><div class="section-kicker">MATCH BRIEF <span class="live-indicator"><i></i> LIVE DATA REQUIRED</span></div><h2 id="matchTitle">Home team <span>vs</span> Away team</h2><div class="match-meta"><span id="leagueName">No live fixture selected</span><b>·</b><span id="kickoffTime">—</span></div></div><button class="star-button" id="starButton" aria-label="Add selected fixture to watchlist">☆</button></div>
+            <div class="teams-score"><div class="team-block"><div class="team-badge badge-home" id="homeBadge">N</div><span id="homeName">Home team</span></div><div class="versus">VS</div><div class="team-block"><div class="team-badge badge-away" id="awayBadge">R</div><span id="awayName">Away team</span></div></div>
+            <div class="callout-warning"><span class="warning-icon">i</span><span><b>No forecast available</b> · Connect a live source and validated forecast model.</span><button class="dismiss" id="dismissWarning" aria-label="Dismiss notice">×</button></div>
+            <div class="probability-section"><div class="subhead"><span>OUTCOME DISTRIBUTION</span><button class="info-link" title="Calculated from the expected-goals inputs using a Poisson score model.">ⓘ</button></div><div class="probability-bars" id="probabilityBars"></div><div class="probability-legend"><span><i class="home-key"></i> Home</span><span><i class="draw-key"></i> Draw</span><span><i class="away-key"></i> Away</span><span class="method-label">NO VALIDATED FORECAST</span></div></div>
+            <div class="score-section"><div class="subhead"><span>MOST LIKELY SCORELINES</span><span class="subhead-note">Illustrative probability</span></div><div id="scoreLines" class="score-lines"></div></div>
+            <section class="selection-builder" id="selectionBuilder"><div class="subhead"><span>MARKET SELECTION</span><span class="source-locked">NOT AN AI PICK</span></div><p class="selection-explainer" id="selectionReason">Matched bookmaker odds are required. Market prices show what a listed bookmaker offers; they do not explain the model or guarantee value.</p><div class="selection-controls"><label>Outcome<select id="selectionOutcome" disabled><option>Select a game with matched odds</option></select></label><label>BetPawa odds<input id="actualOdds" inputmode="decimal" type="number" min="1.01" step="0.01" placeholder="Enter actual odds" /></label><label>Stake (UGX)<input id="stakeAmount" inputmode="numeric" type="number" min="1" step="500" placeholder="Enter stake" /></label><button class="button button-primary" id="addToSlip" disabled>Add to tracker</button></div><small class="selection-estimate" id="selectionEstimate">Set your monthly limit in Finances before tracking a stake. No wager is placed by this app.</small></section>
+            <div class="social-section"><div class="subhead"><span>TEAM CONTEXT</span><span class="source-locked">NO SOURCE CONNECTED <span>⌁</span></span></div><div class="signal-row"><div class="signal-icon">◎</div><div><b>Social signals are not included</b><p>Public, source-linked updates can add context after permitted feeds are connected. They won’t change a forecast automatically.</p></div><button class="arrow-button" data-go="sources" aria-label="Configure data sources">→</button></div></div>
+            <div class="panel-footer-actions"><button class="button button-outline" id="showModel">Forecast readiness</button></div>
+          </section>
+        </div>
+
+        <section class="slip-panel panel" id="slipPanel"><div class="slip-heading"><div><div class="section-kicker">SELECTION WORKSHEET <span class="count-badge" id="slipCount">00</span></div><h2>Manual BetPawa entry</h2></div><div class="slip-actions"><span class="manual-tag"><i></i> YOU REVIEW & ENTER</span><button class="button button-small button-outline" id="copySlip" disabled>Copy selections</button></div></div><div id="slipEmpty" class="slip-empty"><span class="empty-icon">＋</span><span>Add a market from a fixture to start a manual selection sheet.</span></div><div id="slipItems" class="slip-items"></div><div class="booking-note"><span class="lock-icon">▣</span><div><b>Booking codes are created by BetPawa.</b> This prototype can prepare selection details for manual entry; it cannot create or verify a BetPawa code. Never share your BetPawa PIN or login.</div><a href="https://www.betpawa.com" target="_blank" rel="noreferrer">Open BetPawa ↗</a></div></section>
+        <footer class="page-footer"><span>FIELDNOTE <span class="footer-sep">/</span> RESEARCH BUILD 0.1</span><span>Market references only until a validated model is connected.</span><button id="accountShortcut" data-go="sources">Account checklist →</button></footer>
+      </div>
+
+      <div class="page-view hidden" id="view-lab">
+        <section class="page-heading"><div><div class="eyebrow">FORECAST STATUS</div><h1>Model <em>status.</em></h1><p class="page-subtitle">Predictions stay disabled until historical data is connected and a sport-specific model passes time-ordered evaluation.</p></div><span class="pill pill-demo">NO VALIDATED MODEL</span></section>
+        <section class="panel source-principles"><h2>Forecast readiness</h2><div class="principle-grid"><article><b>Choose competitions</b><p>Set your country, football type, leagues, and basketball competitions.</p></article><article><b>Connect licensed data</b><p>Fixtures, historical results, team and player stats, and availability updates need reliable timestamps.</p></article><article><b>Evaluate honestly</b><p>Use chronological holdouts and compare with simple baselines using probability metrics and calibration.</p></article><article><b>Enable forecasts after review</b><p>No accuracy promise is made in advance; exact score outcomes are especially uncertain.</p></article></div></section>
+      </div>
+      <div class="page-view hidden" id="view-sources">
+        <section class="page-heading"><div><div class="eyebrow">SETUP & PROVENANCE <span class="eyebrow-divider">/</span> NO CREDENTIALS SAVED HERE</div><h1>Data <em>connections.</em></h1><p class="page-subtitle">Create only the accounts needed for the leagues and platforms you’ll actually track.</p></div><a class="button button-quiet" href="SETUP.md">Read setup guide ↗</a></section>
+        <div class="setup-banner"><span class="shield-icon">◇</span><div><b>Keep credentials on the server, never in browser storage.</b><p>This prototype has no backend vault yet. Do not paste API keys, passwords, or sportsbook PINs into this page.</p></div></div>
+        <div class="source-grid" id="sourceGrid"></div>
+        <section class="panel source-principles"><div class="section-kicker">DATA RULES</div><h2>What qualifies as a signal</h2><div class="principle-grid"><article><span>01</span><b>Know when it was known</b><p>Every injury, roster, odds, or public update needs a timestamp before kickoff.</p></article><article><span>02</span><b>Separate evidence from opinion</b><p>Posts can flag context; sentiment does not become a strength rating without evidence.</p></article><article><span>03</span><b>Keep source terms attached</b><p>Respect provider limits, platform terms, retention, and redistribution rules.</p></article><article><span>04</span><b>Prove performance forward</b><p>Compare against simple baselines across future seasons, then report calibration and misses.</p></article></div></section>
+        <footer class="page-footer"><span>FIELDNOTE <span class="footer-sep">/</span> SOURCE REGISTER</span><span>Connected status changes only after a backend integration is built.</span><button data-go="board">Back to match board →</button></footer>
+      </div>
+      <div class="page-view hidden" id="view-finance">
+        <section class="page-heading"><div><div class="eyebrow">PERSONAL TRACKER <span class="eyebrow-divider">/</span> LOCAL TO THIS BROWSER</div><h1>Monthly <em>finances.</em></h1><p class="page-subtitle">Set an entertainment limit you choose. Track stakes and manually record results; nothing is connected to your BetPawa balance.</p></div></section>
+        <section class="panel finance-budget"><div><div class="section-kicker">MONTHLY LIMIT · UGX</div><h2>Your betting budget</h2><p>Choose a limit you can afford to lose. The app won’t estimate this from your income.</p></div><form id="budgetForm" class="budget-form"><label for="monthlyBudget">Limit per month</label><input id="monthlyBudget" type="number" min="1" step="1000" placeholder="e.g. 50000" required /><button class="button button-primary" type="submit">Save monthly limit</button></form></section>
+        <section class="metric-row finance-metrics" aria-label="Monthly betting summary"><article class="metric-card"><div class="metric-top"><span>STAKED THIS MONTH</span><span class="metric-icon blue">↗</span></div><div class="metric-value" id="financeStaked">UGX 0</div><div class="metric-foot">Recorded stakes only</div></article><article class="metric-card"><div class="metric-top"><span>LIMIT LEFT</span><span class="metric-icon green">◉</span></div><div class="metric-value" id="financeRemaining">UGX —</div><div class="metric-foot" id="financeBudgetStatus">Set a monthly limit</div></article><article class="metric-card"><div class="metric-top"><span>NET RESULT</span><span class="metric-icon amber">±</span></div><div class="metric-value" id="financeNet">UGX 0</div><div class="metric-foot">Settled wins minus stakes lost</div></article><article class="metric-card"><div class="metric-top"><span>WINS / LOSSES</span><span class="metric-icon muted">↔</span></div><div class="metric-value" id="financeRecord">0 / 0</div><div class="metric-foot" id="financePending">0 pending</div></article></section>
+        <section class="panel finance-ledger"><div class="finance-ledger-heading"><div><div class="section-kicker">PRIVATE LOCAL RECORD</div><h2>Stakes and results</h2></div><span class="manual-tag"><i></i> ENTER RESULTS YOURSELF</span></div><div id="financeLedger" class="finance-ledger-list"></div><div class="booking-note"><span class="lock-icon">▣</span><div>This tracker is stored in this browser only and does not verify your actual bets, deposits, or withdrawals. Winning returns use the recorded decimal odds and stake; check all figures against BetPawa.</div></div></section>
+      </div>
+    </main>
+  </div>
+  
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js" defer></script>
+</body>
+</html>
