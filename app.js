@@ -1,6 +1,6 @@
 const sourceCards = [
   { mark: 'AS', name: 'API-Sports', type: 'SOCCER · BASKETBALL DATA', detail: 'Server-side live and fixture feed connector is ready. Add your private API key locally. Competition coverage and available fields vary by league; free-tier calls are cached to conserve quota.', status: 'KEY REQUIRED · FREE TIER', url: 'https://api-sports.io/' },
-  { mark: 'OD', name: 'The Odds API', type: 'MARKET REFERENCE ODDS', detail: 'The existing connector supports only a short competition list and bookmaker regions US, UK, EU and Australia. BetPawa is not listed in its published bookmaker list, so do not assume Uganda price coverage.', status: 'NOT VERIFIED FOR BETPAWA', url: 'https://the-odds-api.com/sports-odds-data/bookmaker-apis.html' },
+  { mark: 'OD', name: 'The Odds API', type: 'MARKET REFERENCE ODDS', detail: 'The connector requests match-result and totals prices for supported competitions, with optional per-game BTTS prices for soccer. Coverage varies by region/bookmaker; the documented feed does not list soccer corners or cards markets. BetPawa prices are not verified.', status: 'REFERENCE ONLY · COVERAGE VARIES', url: 'https://the-odds-api.com/sports-odds-data/bookmaker-apis.html' },
   { mark: 'BP', name: 'BetPawa', type: 'MANUAL SLIP HANDOFF', detail: 'This app does not need your BetPawa password, PIN, balance, or session. Confirm every selection directly on your local BetPawa site.', status: 'MANUAL ONLY', url: 'https://www.betpawa.com/' },
   { mark: 'X', name: 'X public posts', type: 'OPTIONAL PUBLIC CONTEXT', detail: 'Recommended first social source for timestamped public team, federation, league and reporter updates. Use the official API and a curated source list. Posts remain linked context for human review, not automatic model inputs.', status: 'DEVELOPER ACCESS CHECK NEEDED', url: 'https://developer.x.com/' },
   { mark: 'DB', name: 'Hosting and secure storage', type: 'DEPLOYMENT', detail: 'This build currently runs locally. Public launch needs a selected host, secrets configured there, access control, and a persistence plan.', status: 'NOT DEPLOYED', url: 'SETUP.md' }
@@ -37,6 +37,34 @@ function matchMarket(game, markets) {
     return sameTeams && (!Number.isFinite(time) || !Number.isFinite(marketTime) || Math.abs(time - marketTime) < 8 * 60 * 60 * 1000);
   }) || null;
 }
+function availableMarkets(game) {
+  const markets = game?.marketReference?.markets || [];
+  if (markets.length) return markets;
+  return game?.marketReference?.odds?.length ? [{ key: 'h2h', label: 'Match result', bookmaker: game.marketReference.bookmaker, odds: game.marketReference.odds }] : [];
+}
+function selectedMarket() { return availableMarkets(fixture()).find(m => m.key === $('#selectionMarket').value) || null; }
+function renderMarketOutcomes() {
+  const market = selectedMarket(); const outcomes = (market?.odds || []).filter(item => item.price > 1);
+  $('#selectionOutcome').innerHTML = outcomes.length ? outcomes.map((item, i) => `<option value="${i}">${escapeHTML(item.name)}${item.point != null ? ` ${item.point}` : ''} · ${Number(item.price).toFixed(2)}</option>`).join('') : '<option value="">No prices for this market</option>';
+  $('#selectionOutcome').disabled = !outcomes.length; $('#addToSlip').disabled = !outcomes.length;
+  updateSelectionEstimate();
+}
+async function loadBtts() {
+  const f = fixture(); const button = $('#loadBtts');
+  if (!f?.marketReference?.oddsEventId || !oddsSportKey(f)) return;
+  button.disabled = true; button.textContent = 'Loading BTTS…';
+  try {
+    const params = new URLSearchParams({ sport: oddsSportKey(f), eventId: f.marketReference.oddsEventId });
+    const response = await fetch(`/api/odds?${params}`, { cache: 'no-store' }); const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'BTTS prices are unavailable for this event.');
+    const event = data.events?.[0]; const btts = event?.markets?.find(market => market.key === 'btts');
+    if (!btts) throw new Error('No BTTS prices are published for this game in the configured bookmaker region.');
+    f.marketReference.markets = [...availableMarkets(f).filter(market => market.key !== 'btts'), btts];
+    const select = $('#selectionMarket'); select.innerHTML = f.marketReference.markets.map(m => `<option value="${escapeHTML(m.key)}">${escapeHTML(m.label || m.key)} · ${escapeHTML(m.bookmaker || 'bookmaker')}</option>`).join(''); select.value = 'btts';
+    $('#loadBtts').hidden = true; renderMarketOutcomes(); toast('Loaded published BTTS reference prices. These are not a prediction.');
+  } catch (error) { toast(error.message); }
+  finally { button.disabled = false; button.textContent = 'Load BTTS prices'; }
+}
 function kampalaMonth(date = new Date()) { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Kampala', year: 'numeric', month: '2-digit' }).format(date); }
 function ugx(amount) { return `UGX ${Math.round(Number(amount) || 0).toLocaleString('en-US')}`; }
 function saveFinance() { try { localStorage.setItem('fieldnote-finance-v1', JSON.stringify({ monthlyLimit: state.monthlyLimit, ledger: state.ledger })); } catch { toast('This browser could not save the finance tracker.'); } }
@@ -56,10 +84,10 @@ function renderFinance() {
 }
 function updateSelectionEstimate() {
   const f = fixture(); const outcome = $('#selectionOutcome'); const stake = Number($('#stakeAmount').value);
-  const options = (f?.marketReference?.odds || []).filter(x => x.price > 1); const pick = options[Number(outcome.value)]; const actualOdds = Number($('#actualOdds').value);
+  const market = selectedMarket(); const options = (market?.odds || []).filter(x => x.price > 1); const pick = options[Number(outcome.value)]; const actualOdds = Number($('#actualOdds').value);
   if (pick) {
     const total = options.reduce((sum, x) => sum + 1 / x.price, 0); const probability = total ? (1 / pick.price) / total : 0;
-    $('#selectionReason').textContent = `${f.marketReference.bookmaker || 'External bookmaker'} reference: ${pick.name} is about ${percent(probability)} of this market’s implied outcome share after removing the market margin. This describes the market price only; it is not an AI forecast or a verified reason for the bookmaker’s line.`;
+    $('#selectionReason').textContent = `${market.bookmaker || 'External bookmaker'} lists ${market.label || market.key} at this price. ${pick.name}${pick.point != null ? ` ${pick.point}` : ''} has an estimated ${percent(probability)} market-implied share after removing the margin across these outcomes. This is bookmaker consensus context, not a validated AI pick or BetPawa price.`;
   }
   $('#selectionEstimate').textContent = pick ? `External reference: ${Number(pick.price).toFixed(2)}. ${actualOdds > 1 && stake > 0 ? `Estimated return at your entered BetPawa price: ${ugx(stake * actualOdds)} (includes stake).` : 'Enter the odds shown on BetPawa and your stake to calculate an estimated return.'} No wager is placed by this app.` : 'Set your monthly limit in Finances before tracking a stake. No wager is placed by this app.';
 }
@@ -68,7 +96,7 @@ function renderWatchlist() {
 }
 function renderFixtures() {
   const visible = allFixtures().filter(f => state.filter === 'all' || f.sport === state.filter);
-  $('#fixtureList').innerHTML = visible.map(f => `<button class="fixture-row ${f.id === state.fixtureId ? 'selected' : ''}" data-select="${escapeHTML(f.id)}"><span class="fixture-time">${f.phase === 'live' ? `${f.score?.home ?? '—'}–${f.score?.away ?? '—'}` : new Date(f.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Kampala' })}</span><span><span class="fixture-sport ${escapeHTML(f.sport)}">${escapeHTML(f.sport.toUpperCase())} · ${escapeHTML((f.status || f.phase).toUpperCase())}</span><span class="fixture-teams"><strong>${escapeHTML(f.home)}</strong> <span style="color:#718391">vs</span> <strong>${escapeHTML(f.away)}</strong></span><span class="fixture-meta">${escapeHTML(f.league)}${f.clock ? ` · ${escapeHTML(f.clock)}` : ''}</span></span><span class="fixture-price"><span class="row-tag">${f.phase === 'live' ? 'LIVE SCORE' : 'FIXTURE'}</span><small>API-Sports</small></span></button>`).join('') || `<div class="slip-empty">No ${state.phase} games loaded. Connect API-Sports, then choose “Load ${state.phase} games.” No sample matches are shown.</div>`;
+  $('#fixtureList').innerHTML = visible.map(f => { const markets = availableMarkets(f); const h2h = markets.find(m => m.key === 'h2h'); const prices = h2h?.odds || []; return `<button class="fixture-row ${f.id === state.fixtureId ? 'selected' : ''}" data-select="${escapeHTML(f.id)}"><span class="fixture-time">${f.phase === 'live' ? `${f.score?.home ?? '—'}–${f.score?.away ?? '—'}` : new Date(f.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Kampala' })}</span><span><span class="fixture-sport ${escapeHTML(f.sport)}">${escapeHTML(f.sport.toUpperCase())} · ${escapeHTML((f.status || f.phase).toUpperCase())}</span><span class="fixture-teams"><strong>${escapeHTML(f.home)}</strong> <span style="color:#718391">vs</span> <strong>${escapeHTML(f.away)}</strong></span><span class="fixture-meta">${escapeHTML(f.league)}${f.clock ? ` · ${escapeHTML(f.clock)}` : ''}</span></span><span class="fixture-price"><span class="row-tag">${prices.length ? prices.map(o => `${o.name}: ${Number(o.price).toFixed(2)}`).join(' · ') : f.phase === 'live' ? 'LIVE SCORE' : 'NO ODDS'}</span><small>${prices.length ? `${escapeHTML(h2h.bookmaker || 'Reference odds')} · ${markets.length} markets` : 'Odds source'}</small></span></button>`; }).join('') || `<div class="slip-empty">No ${state.phase} games loaded. Connect API-Sports, then choose “Load ${state.phase} games.” No sample matches are shown.</div>`;
   $$('#fixtureList [data-select]').forEach(b => b.addEventListener('click', () => selectFixture(b.dataset.select)));
   $('#gamesTracked').textContent = String(visible.length).padStart(2, '0');
   $('.count-badge', $('.fixtures-panel .panel-header'))?.replaceChildren(document.createTextNode(String(visible.length).padStart(2, '0')));
@@ -86,6 +114,9 @@ function renderEmptyAnalysis() {
   $('.probability-legend', $('.probability-section'))?.remove();
   $('#analysisPanel .subhead').firstElementChild.textContent = 'LIVE DATA REQUIRED';
   $('#analysisPanel .signal-row p').textContent = 'No public social sources or team data are connected.';
+  $('#selectionMarket').innerHTML = '<option value="">No markets loaded</option>'; $('#selectionMarket').disabled = true;
+  $('#selectionOutcome').innerHTML = '<option value="">Select a game with matched odds</option>'; $('#selectionOutcome').disabled = true;
+  $('#loadBtts').hidden = true;
   $('#addToSlip').disabled = true; $('#showModel').disabled = true;
 }
 function selectFixture(id) {
@@ -98,28 +129,32 @@ function selectFixture(id) {
   $('#homeName').textContent = f.home; $('#awayName').textContent = f.away;
   $('#homeBadge').textContent = f.homeBadge; $('#awayBadge').textContent = f.awayBadge;
   $('.teams-score .versus').textContent = f.phase === 'live' ? `${f.score?.home ?? '—'} – ${f.score?.away ?? '—'}` : 'VS';
+  const marketSelect = $('#selectionMarket'); const allMarkets = availableMarkets(f);
+  marketSelect.innerHTML = allMarkets.length ? allMarkets.map(m => `<option value="${escapeHTML(m.key)}">${escapeHTML(m.label || m.key)} · ${escapeHTML(m.bookmaker || 'bookmaker')}</option>`).join('') : '<option value="">No markets loaded</option>';
+  marketSelect.disabled = !allMarkets.length;
+  $('#loadBtts').hidden = f.sport !== 'football' || allMarkets.some(m => m.key === 'btts') || !f.marketReference?.oddsEventId;
   const outcomeSelect = $('#selectionOutcome');
-  const marketOutcomes = (f.marketReference?.odds || []).filter(x => x.price > 1);
+  const marketOutcomes = (allMarkets[0]?.odds || []).filter(x => x.price > 1);
   outcomeSelect.innerHTML = marketOutcomes.length ? marketOutcomes.map((x, i) => `<option value="${i}">${escapeHTML(x.name)} · ${Number(x.price).toFixed(2)}</option>`).join('') : '<option value="">No matched bookmaker odds</option>';
   outcomeSelect.disabled = !marketOutcomes.length;
+  outcomeSelect.dataset.marketKey = allMarkets[0]?.key || '';
   $('#actualOdds').value = '';
   $('#stakeAmount').value = '';
   $('#addToSlip').disabled = !marketOutcomes.length;
-  $('#selectionReason').textContent = f.marketReference ? `Available line from ${f.marketReference.bookmaker || 'an external bookmaker'} (${f.marketReference.region || 'region not reported'}). This is the market price, not an AI recommendation; BetPawa may offer different odds.` : 'No odds matched this event. We will not invent a selection or price. Market availability depends on competition coverage.';
+  $('#selectionReason').textContent = f.marketReference ? `Available bookmaker market prices are reference lines, not recommendations. Totals coverage varies; soccer BTTS can be requested for this game. Corners and card odds are not available in this connector. BetPawa may offer different prices.` : 'No odds matched this event. We will not invent a selection or price. Market availability depends on competition coverage.';
   updateSelectionEstimate();
   $('#analysisPanel .callout-warning span:last-of-type').innerHTML = `<b>${f.phase === 'live' ? 'Live score from API-Sports' : 'Fixture details from API-Sports'}</b> · status ${escapeHTML(f.status || 'unknown')}${f.updatedAt ? ` · retrieved ${escapeHTML(new Date(f.updatedAt).toLocaleString())}` : ''}. This is not a forecast.`;
-  const impliedTotal = marketOutcomes.reduce((sum, x) => sum + 1 / x.price, 0);
-  $('#probabilityBars').innerHTML = marketOutcomes.length ? marketOutcomes.map(x => { const p = (1 / x.price) / impliedTotal; return `<div class="prob-row"><span>${escapeHTML(x.name)}</span><div class="prob-track"><div class="prob-fill" style="width:${(p * 100).toFixed(1)}%"></div></div><b class="prob-value">${percent(p)}</b></div>`; }).join('') : '<div class="field-note">No bookmaker reference odds matched this game. Live scores stay separate from predicted probabilities.</div>';
+  const h2hOutcomes = (allMarkets.find(m => m.key === 'h2h')?.odds || []).filter(x => x.price > 1);
+  const impliedTotal = h2hOutcomes.reduce((sum, x) => sum + 1 / x.price, 0);
+  $('#probabilityBars').innerHTML = h2hOutcomes.length ? h2hOutcomes.map(x => { const p = (1 / x.price) / impliedTotal; return `<div class="prob-row"><span>${escapeHTML(x.name)}</span><div class="prob-track"><div class="prob-fill" style="width:${(p * 100).toFixed(1)}%"></div></div><b class="prob-value">${percent(p)}</b></div>`; }).join('') : '<div class="field-note">No bookmaker reference odds matched this game. Live scores stay separate from predicted probabilities.</div>';
   $('#scoreLines').innerHTML = '<div class="field-note">No independent score forecast yet. Historical team and player data plus time-ordered model validation are still required.</div>';
   $('.probability-legend', $('.probability-section'))?.remove();
   const legend = document.createElement('div'); legend.className = 'probability-legend'; legend.innerHTML = `<span class="method-label">${f.marketReference ? `EXTERNAL MARKET REFERENCE · ${escapeHTML(f.marketReference.bookmaker || 'BOOKMAKER') } · NOT BETPAWA OR A MODEL` : 'NO MATCHED BOOKMAKER ODDS'}</span>`; $('.probability-section').appendChild(legend);
   $('#scoreLines').previousElementSibling.querySelector('span').textContent = 'FORECAST NOT AVAILABLE';
   $('#analysisPanel .subhead').firstElementChild.textContent = 'GAME DATA · NOT A PREDICTION';
   $('#analysisPanel .signal-row p').textContent = 'No authorized social, lineup, weather, bookmaker or independent forecast source is connected.';
-  $('#selectionOutcome').innerHTML = '<option value="">Select a game with matched odds</option>'; $('#selectionOutcome').disabled = true;
-  $('#stakeAmount').value = ''; $('#actualOdds').value = ''; $('#addToSlip').disabled = true; $('#showModel').disabled = true;
-  $('#selectionReason').textContent = 'Matched bookmaker odds are required. Market prices do not establish value or predict a result.';
-  updateSelectionEstimate();
+  $('#showModel').disabled = true;
+  $('#stakeAmount').value = ''; $('#actualOdds').value = '';
   renderFixtures(); renderWatchlist();
 }
 function renderSources() {
@@ -127,6 +162,8 @@ function renderSources() {
 }
 function renderSlip() {
   $('#slipCount').textContent = String(state.slip.length).padStart(2, '0');
+  const combined = state.slip.length && state.slip.every(item => Number(item.odds) > 1) ? state.slip.reduce((product, item) => product * Number(item.odds), 1) : null;
+  $('#combinedOdds').textContent = `Combined odds: ${combined ? combined.toFixed(2) : '—'} · product of prices entered by you; verify live BetPawa prices before placing.`;
   $('#slipEmpty').style.display = state.slip.length ? 'none' : 'flex';
   $('#copySlip').disabled = !state.slip.length;
   $('#slipItems').innerHTML = state.slip.map((s, i) => `<div class="slip-item"><span>${escapeHTML(s.sport.toUpperCase())}</span><span>${escapeHTML(s.fixture)}</span><small>${escapeHTML(s.market)}</small><b>${s.odds ? `@ ${escapeHTML(s.odds)}` : 'Odds not entered'}</b><button class="remove-slip" data-remove="${i}" aria-label="Remove ${escapeHTML(s.fixture)}">×</button></div>`).join('');
@@ -135,14 +172,15 @@ function renderSlip() {
 function addSelection() {
   const f = fixture(); if (!f) return;
   if (!state.monthlyLimit) { toast('Set a monthly limit in Finances before recording a stake.'); setView('finance'); $('#monthlyBudget').focus(); return; }
-  const options = (f.marketReference?.odds || []).filter(x => x.price > 1); const pick = options[Number($('#selectionOutcome').value)]; const stake = Number($('#stakeAmount').value);
+  const market = selectedMarket(); const options = (market?.odds || []).filter(x => x.price > 1); const pick = options[Number($('#selectionOutcome').value)]; const stake = Number($('#stakeAmount').value);
   const actualOdds = Number($('#actualOdds').value);
   if (!pick || !Number.isFinite(stake) || stake <= 0 || !Number.isFinite(actualOdds) || actualOdds <= 1) { toast('Choose an outcome, enter the odds shown on BetPawa, and enter a stake.'); return; }
   const monthEntries = state.ledger.filter(b => kampalaMonth(new Date(b.createdAt)) === kampalaMonth());
   const used = monthEntries.reduce((sum, b) => sum + Number(b.stake || 0), 0);
   if (stake + used > state.monthlyLimit) { toast(`That stake exceeds your remaining monthly limit of ${ugx(state.monthlyLimit - used)}.`); return; }
-  const entry = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), fixture: `${f.home} vs ${f.away}`, sport: f.sport, selection: pick.name, odds: actualOdds, marketOdds: Number(pick.price), stake, result: 'pending', bookmaker: 'BetPawa (entered by you)' };
-  state.ledger.push(entry); state.slip.push({ fixture: entry.fixture, sport: entry.sport, market: entry.selection, odds: entry.odds.toFixed(2) });
+  const selection = `${market.label || market.key}: ${pick.name}${pick.point != null ? ` ${pick.point}` : ''}`;
+  const entry = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), fixture: `${f.home} vs ${f.away}`, sport: f.sport, selection, odds: actualOdds, marketOdds: Number(pick.price), stake, result: 'pending', bookmaker: 'BetPawa (entered by you)' };
+  state.ledger.push(entry); state.slip.push({ fixture: entry.fixture, sport: f.sport, market: selection, odds: entry.odds.toFixed(2) });
   saveFinance(); renderFinance(); renderSlip(); $('#stakeAmount').value = ''; $('#actualOdds').value = ''; updateSelectionEstimate(); toast('Recorded in your private tracker. This has not placed a bet.');
 }
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('show'), 3000); }
@@ -213,6 +251,8 @@ function init() {
   }));
   $('#addToSlip').addEventListener('click', addSelection);
   $('#selectionOutcome').addEventListener('change', updateSelectionEstimate);
+  $('#selectionMarket').addEventListener('change', renderMarketOutcomes);
+  $('#loadBtts').addEventListener('click', loadBtts);
   $('#stakeAmount').addEventListener('input', updateSelectionEstimate);
   $('#actualOdds').addEventListener('input', updateSelectionEstimate);
   $('#budgetForm').addEventListener('submit', e => {

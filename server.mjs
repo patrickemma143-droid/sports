@@ -70,15 +70,19 @@ const server = createServer(async (req, res) => {
       }
       const query = new URL(req.url, 'http://localhost').searchParams;
       const sport = query.get('sport') || '';
-      const allowed = new Set(['soccer_epl', 'soccer_germany_bundesliga', 'soccer_france_ligue_one', 'soccer_uefa_champs_league', 'basketball_nba', 'basketball_euroleague']);
+      const allowed = new Set(['soccer_epl', 'soccer_germany_bundesliga', 'soccer_france_ligue_one', 'soccer_uefa_champs_league', 'soccer_uefa_nations_league', 'basketball_nba', 'basketball_euroleague']);
       if (!allowed.has(sport)) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'Choose a supported sport key from SETUP.md.' }));
         return;
       }
       const regions = (process.env.ODDS_REGIONS || 'eu').split(',').map(x => x.trim()).filter(x => ['us', 'us2', 'uk', 'eu', 'au'].includes(x)).join(',') || 'eu';
-      const endpoint = new URL(`https://api.the-odds-api.com/v4/sports/${sport}/odds`);
-      endpoint.search = new URLSearchParams({ apiKey: process.env.THE_ODDS_API_KEY, regions, markets: 'h2h', oddsFormat: 'decimal', dateFormat: 'iso' }).toString();
+      const eventId = query.get('eventId');
+      if (eventId && (!/^[a-zA-Z0-9-]{1,100}$/.test(eventId) || sport.startsWith('basketball'))) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ error: 'BTTS event prices are only supported for a valid soccer event.' })); return;
+      }
+      const endpoint = eventId ? new URL(`https://api.the-odds-api.com/v4/sports/${sport}/events/${eventId}/odds`) : new URL(`https://api.the-odds-api.com/v4/sports/${sport}/odds`);
+      endpoint.search = new URLSearchParams({ apiKey: process.env.THE_ODDS_API_KEY, regions, markets: eventId ? 'btts' : 'h2h,totals', oddsFormat: 'decimal', dateFormat: 'iso' }).toString();
       const response = await fetch(endpoint, { headers: { 'Accept': 'application/json' }, signal: AbortSignal.timeout(12000) });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -87,11 +91,15 @@ const server = createServer(async (req, res) => {
         res.end(JSON.stringify({ error: safeMessage, remaining: response.headers.get('x-requests-remaining') }));
         return;
       }
-      const events = Array.isArray(payload) ? payload.map(event => {
-        const book = (event.bookmakers || []).find(b => (b.markets || []).some(m => m.key === 'h2h'));
-        const market = book?.markets?.find(m => m.key === 'h2h');
-        return { id: `odds-${event.id}`, live: false, eventStatus: 'upcoming', sport: sport.startsWith('basketball') ? 'basketball' : 'football', league: event.sport_title, time: event.commence_time, home: event.home_team, away: event.away_team, homeBadge: event.home_team?.slice(0, 1) || '?', awayBadge: event.away_team?.slice(0, 1) || '?', bookmaker: book?.title || null, odds: (market?.outcomes || []).map(o => ({ name: o.name, key: o.name === event.home_team ? 'home' : o.name === event.away_team ? 'away' : o.name.toLowerCase() === 'draw' ? 'draw' : 'other', price: o.price })), updatedAt: market?.last_update || book?.last_update || null };
-      }) : [];
+      const sourceEvents = eventId ? (payload && typeof payload === 'object' ? [payload] : []) : (Array.isArray(payload) ? payload : []);
+      const events = sourceEvents.map(event => {
+        const markets = ['h2h', 'totals', 'btts'].flatMap(key => {
+          const book = (event.bookmakers || []).find(b => b.markets?.some(m => m.key === key)); const market = book?.markets?.find(m => m.key === key);
+          return market ? [{ key, label: ({ h2h: 'Match result', totals: 'Total goals/points', btts: 'Both teams to score' })[key], bookmaker: book.title, updatedAt: market.last_update || book.last_update || null, odds: (market.outcomes || []).map(o => ({ name: o.name, price: o.price, point: o.point ?? null })) }] : [];
+        });
+        const result = markets.find(m => m.key === 'h2h');
+        return { id: `odds-${event.id}`, oddsEventId: event.id, sportKey: sport, live: false, sport: sport.startsWith('basketball') ? 'basketball' : 'football', league: event.sport_title, time: event.commence_time, home: event.home_team, away: event.away_team, homeBadge: event.home_team?.slice(0, 1) || '?', awayBadge: event.away_team?.slice(0, 1) || '?', bookmaker: result?.bookmaker || null, region: regions, odds: result?.odds || [], markets, updatedAt: result?.updatedAt || null };
+      });
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Odds-Requests-Remaining': response.headers.get('x-requests-remaining') || 'unknown' });
       res.end(JSON.stringify({ sport, regions, events }));
       return;

@@ -33,7 +33,7 @@ Create one API-Sports dashboard account and use its free access for initial cove
 
 ### Odds and BetPawa prices
 
-The current app connector uses The Odds API and only supports a small fixed set. Its documented bookmaker regions are US, UK, EU and Australia; I do not see BetPawa in its published bookmaker list. Treat it as a possible independent market reference only, not as a Uganda BetPawa price source. Check the [sports list](https://the-odds-api.com/sports-odds-data/sports-apis.html) and [bookmaker list](https://the-odds-api.com/sports-odds-data/bookmaker-apis.html) before creating an account or paying.
+The current app connector uses The Odds API and only supports a small fixed set. It requests match-result and totals markets; soccer BTTS is an optional per-event request. The API's published docs say additional markets have limited sport/bookmaker coverage and are requested one event at a time. Its documented bookmaker regions are US, UK, EU and Australia; BetPawa is not listed in its published bookmaker list. Treat these as independent reference prices, not Uganda BetPawa prices. Soccer corners/cards markets are not listed in the connector's documented market coverage. Check the [sports list](https://the-odds-api.com/sports-odds-data/sports-apis.html), [market list](https://the-odds-api.com/sports-odds-data/betting-markets.html), and [bookmaker list](https://the-odds-api.com/sports-odds-data/bookmaker-apis.html) before expanding coverage or paying. Each additional requested market can use more API quota; BTTS is deliberately fetched only when requested for one selected soccer event.
 
 The app does not place bets or create BetPawa booking codes. Keep your BetPawa account separate and enter selections manually on the official Uganda site.
 

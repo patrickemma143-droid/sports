@@ -18,8 +18,9 @@ The app now includes Netlify Functions for its `/api/status`, `/api/games`, and 
 
 ## Current implementation
 
-- The current legacy connector can request upcoming market odds from The Odds API for a small allowlist of competitions after a server-side key is configured. It does not provide live scores and is not a BetPawa price feed.
-- Market-implied probabilities are explicitly labeled market references, not an independent forecast.
+- The odds connector requests match-result and totals markets for its small allowlist; soccer BTTS is an optional per-event request. Availability depends on the event, region and bookmaker, and requests consume provider quota.
+- The connector does not provide a BetPawa feed. Its documented markets do not include soccer corners or cards; no prices or selections are made up when coverage is missing.
+- Market-implied probabilities are explicitly labeled market references, not an independent forecast or betting recommendation.
 - The personal Finance view keeps a user-entered monthly limit and manual stake/outcome ledger in this browser’s local storage. It does not connect to BetPawa balances or place wagers.
 - The fixture list starts empty. No example fixtures or synthetic scores are inserted.
 - API-Sports football/basketball schedule and live-score routes are wired server-side; add a private `API_SPORTS_KEY` in `.env` to activate them. Team/player stats, injuries, lineups, social sources, historical modeling, model validation, user authentication, persistence, and hosting are not implemented yet.
