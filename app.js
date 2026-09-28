@@ -20,6 +20,7 @@ function oddsSportKey(f) {
     if (league.includes('bundesliga') && league.includes('germany')) return 'soccer_germany_bundesliga';
     if (league.includes('ligue 1') && league.includes('france')) return 'soccer_france_ligue_one';
     if (league.includes('champions league') && league.includes('uefa')) return 'soccer_uefa_champs_league';
+    if (league.includes('nations league') && league.includes('uefa')) return 'soccer_uefa_nations_league';
   }
   if (f.sport === 'basketball') {
     if (league.includes('nba')) return 'basketball_nba';
@@ -163,7 +164,7 @@ async function loadLiveGames() {
       return data;
     }));
     state.liveFixtures = responses.flatMap(data => (data.events || []).map(event => ({ ...event, updatedAt: data.updatedAt })));
-    const apiStatus = await fetch('/api/status', { cache: 'no-store' }).then(r => r.json()).catch(() => ({}));
+    const apiStatus = await fetch(`/api/status?refresh=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).catch(() => ({}));
     if (apiStatus.oddsApi) {
       const marketKeys = [...new Set(state.liveFixtures.map(oddsSportKey).filter(Boolean))];
       const marketResponses = await Promise.all(marketKeys.map(async sport => {

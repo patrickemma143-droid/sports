@@ -1,6 +1,6 @@
 import { json, safeProviderError } from './shared.mjs';
 
-const allowed = new Set(['soccer_epl', 'soccer_germany_bundesliga', 'soccer_france_ligue_one', 'soccer_uefa_champs_league', 'basketball_nba', 'basketball_euroleague']);
+const allowed = new Set(['soccer_epl', 'soccer_germany_bundesliga', 'soccer_france_ligue_one', 'soccer_uefa_champs_league', 'soccer_uefa_nations_league', 'basketball_nba', 'basketball_euroleague']);
 
 export default async function handler(request) {
   if (request.method !== 'GET') return json({ error: 'Only GET requests are supported.' }, 405);
