@@ -13,7 +13,7 @@ function kampalaDateValue(date = new Date()) {
 }
 function dateAfter(value, days) { const date = new Date(`${value}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10); }
 const initialFixtureDate = kampalaDateValue();
-const state = { fixtureId: null, filter: 'all', phase: 'upcoming', selectedDate: initialFixtureDate, slip: savedSlip, suggestions: {}, watch: [], liveFixtures: [], feedLoaded: false, monthlyLimit: Number(savedFinance.monthlyLimit) || 0, ledger: Array.isArray(savedFinance.ledger) ? savedFinance.ledger : [] };
+const state = { fixtureId: null, filter: 'all', phase: 'upcoming', selectedDate: initialFixtureDate, slip: savedSlip, suggestions: {}, customSlipRequested: false, watch: [], liveFixtures: [], feedLoaded: false, monthlyLimit: Number(savedFinance.monthlyLimit) || 0, ledger: Array.isArray(savedFinance.ledger) ? savedFinance.ledger : [] };
 const suggestionTiers = [{ id: 'low', name: 'Lower risk', targetOdds: 2 }, { id: 'high', name: 'High risk', targetOdds: 10 }, { id: 'very-high', name: 'Very high risk', targetOdds: 30 }];
 const $ = (q, root = document) => root.querySelector(q);
 const $$ = (q, root = document) => [...root.querySelectorAll(q)];
@@ -219,9 +219,14 @@ function marketCandidates() {
 }
 function buildSuggestedSlips() {
   const candidates = marketCandidates(); state.suggestions = {};
-  for (const tier of suggestionTiers) {
+  const tiers = [...suggestionTiers];
+  if (state.customSlipRequested) {
+    const targetOdds = Number($('#customOddsTarget').value);
+    if (Number.isFinite(targetOdds) && targetOdds >= 2 && targetOdds <= 1000) tiers.push({ id: 'custom', name: 'Custom target', targetOdds, maxLegs: 200 });
+  }
+  for (const tier of tiers) {
     const picks = []; let combined = 1; let marketShare = 1;
-    for (const candidate of candidates) {
+    for (const candidate of candidates.slice(0, tier.maxLegs || candidates.length)) {
       picks.push(candidate); combined *= Number(candidate.outcome.price); marketShare *= candidate.probability;
       if (combined >= tier.targetOdds) break;
     }
@@ -230,7 +235,8 @@ function buildSuggestedSlips() {
   renderSuggestedSlips(candidates.length);
 }
 function renderSuggestedSlips(candidateCount) {
-  const tiers = suggestionTiers.map(tier => state.suggestions[tier.id]).filter(Boolean);
+  const tierIds = state.customSlipRequested ? [...suggestionTiers.map(tier => tier.id), 'custom'] : suggestionTiers.map(tier => tier.id);
+  const tiers = tierIds.map(id => state.suggestions[id]).filter(Boolean);
   const available = state.liveFixtures.length;
   $('#autoSlipStatus').textContent = state.feedLoaded ? `${state.phase.toUpperCase()} · ${candidateCount} of ${available} loaded matches have matched prices` : 'Waiting for game and odds data';
   $('#autoSlipGrid').innerHTML = tiers.map(tier => {
@@ -240,9 +246,11 @@ function renderSuggestedSlips(candidateCount) {
       const line = `${pick.market.label || pick.market.key}: ${outcome.name}${outcome.point != null ? ` ${outcome.point}` : ''}`;
       return `<li><span class="auto-pick-number">${String(index + 1).padStart(2, '0')}</span><span class="auto-pick-main"><b>${escapeHTML(game.home)} vs ${escapeHTML(game.away)}</b><small>${escapeHTML(game.phase.toUpperCase())} · ${escapeHTML(game.sport.toUpperCase())} · ${escapeHTML(game.league)} · ${escapeHTML(line)}</small><small>${escapeHTML(pick.market.bookmaker || 'External market')} reference · ${(pick.probability * 100).toFixed(1)}% margin-removed market share</small></span><strong>@${Number(outcome.price).toFixed(2)}</strong></li>`;
     }).join('');
+    const marketShareText = tier.marketShare > 0 ? `${(tier.marketShare * 100).toExponential(2)}%` : '<1e-320%';
     const status = alreadyRecorded ? '<p class="auto-slip-message">Already recorded in Finances for this loaded set.</p>' : '';
-    const controls = tier.ready && !alreadyRecorded ? `<div class="auto-slip-inputs"><label>BetPawa combined odds<input data-auto-odds="${tier.id}" type="number" min="1.01" step="0.01" placeholder="Check the total on BetPawa" /></label><label>Stake (UGX)<input data-auto-stake="${tier.id}" inputmode="numeric" type="number" min="1" step="500" placeholder="Your chosen stake" /></label></div><small class="auto-return" data-auto-return="${tier.id}">Enter the actual BetPawa total and stake to estimate the gross return.</small><div class="auto-slip-actions"><button class="button button-outline" data-copy-suggestion="${tier.id}" type="button">Copy picks</button><button class="button button-primary" data-record-suggestion="${tier.id}" type="button">Record after placing</button></div>` : '';
-    return `<article class="auto-tier tier-${tier.id}"><div class="auto-tier-top"><span class="auto-tier-name">${escapeHTML(tier.name)}</span><span class="auto-tier-target">MIN @${tier.targetOdds.toFixed(2)}</span></div><h3>${tier.ready ? `${tier.picks.length} strongest available market picks` : 'Slip unavailable for this feed snapshot'}</h3>${tier.ready ? `<p class="auto-tier-total">Reference total <b>@${tier.combined.toFixed(2)}</b><small>Rough market-share product ${(tier.marketShare * 100).toFixed(2)}% · assumes different matches are independent; not a forecast.</small></p><ol class="auto-pick-list">${legs}</ol>` : `<p class="auto-slip-message">${candidateCount ? `Top-ranked outcomes combine to @${tier.combined.toFixed(2)}, below the requested minimum of @${tier.targetOdds.toFixed(2)}.` : 'No matched bookmaker odds in this snapshot, so there are no evidence-backed picks to display.'}</p>`}${status}${controls}</article>`;
+    const controls = tier.ready && !alreadyRecorded ? `<div class="auto-slip-inputs"><label>BetPawa combined odds<input data-auto-odds="${tier.id}" type="number" min="1.01" step="0.01" placeholder="Check the total on BetPawa" /></label><label>Stake (UGX)<input data-auto-stake="${tier.id}" inputmode="numeric" type="number" min="1" step="500" placeholder="Your chosen stake" /></label></div><small class="auto-return" data-auto-return="${tier.id}">Enter the actual BetPawa total and stake to estimate the gross return.</small><div class="auto-slip-actions"><button class="button button-outline" data-copy-suggestion="${tier.id}" type="button">${tier.id === 'custom' ? 'Copy receipt' : 'Copy picks'}</button><button class="button button-primary" data-record-suggestion="${tier.id}" type="button">Record after placing</button></div>` : '';
+    const title = tier.ready ? tier.id === 'custom' ? `${tier.picks.length} distinct match legs selected` : `${tier.picks.length} strongest available market picks` : 'Slip unavailable for this feed snapshot';
+    return `<article class="auto-tier tier-${tier.id}"><div class="auto-tier-top"><span class="auto-tier-name">${escapeHTML(tier.name)}</span><span class="auto-tier-target">MIN @${tier.targetOdds.toFixed(2)}</span></div><h3>${title}</h3>${tier.ready ? `<p class="auto-tier-total">Reference total <b>@${tier.combined.toFixed(2)}</b><small>Rough combined market-share estimate ${marketShareText} · assumes different matches are independent; not a score forecast.</small></p><ol class="auto-pick-list">${legs}</ol>` : `<p class="auto-slip-message">${candidateCount ? `Top-ranked outcomes combine to @${tier.combined.toFixed(2)}, below the requested minimum of @${tier.targetOdds.toFixed(2)}.` : 'No matched bookmaker odds in this snapshot, so there are no evidence-backed picks to display.'}</p>`}${status}${controls}</article>`;
   }).join('');
 }
 function recordSuggestedSlip(id) {
@@ -263,8 +271,8 @@ function updateSuggestedReturn(id) {
 }
 async function copySuggestedSlip(id) {
   const tier = state.suggestions[id]; if (!tier?.ready) return;
-  const lines = [`${tier.name} — minimum odds ${tier.targetOdds.toFixed(2)}`, ...tier.picks.map((pick, index) => `${index + 1}. ${pick.game.sport.toUpperCase()} · ${pick.game.home} vs ${pick.game.away} · ${pick.market.label || pick.market.key}: ${pick.outcome.name}${pick.outcome.point != null ? ` ${pick.outcome.point}` : ''} @ ${Number(pick.outcome.price).toFixed(2)} reference`), `Reference combined odds: ${tier.combined.toFixed(2)}`, 'Prices are external references, not BetPawa quotes. Confirm every selection and the final total on BetPawa. This is not an independent prediction.'];
-  try { await navigator.clipboard.writeText(lines.join('\n')); toast('Market-ranked picks copied. Verify them on BetPawa before tracking.'); } catch { toast('Clipboard unavailable. You can read the picks in Suggested slips.'); }
+  const lines = [`${tier.name} — target minimum odds ${tier.targetOdds.toFixed(2)}`, ...tier.picks.map((pick, index) => `${index + 1}. ${pick.game.sport.toUpperCase()} · ${pick.game.home} vs ${pick.game.away} · ${pick.market.label || pick.market.key}: ${pick.outcome.name}${pick.outcome.point != null ? ` ${pick.outcome.point}` : ''} @ ${Number(pick.outcome.price).toFixed(2)} reference`), `Reference combined odds: ${tier.combined.toFixed(2)}`, `Legs: ${tier.picks.length}${tier.maxLegs ? ` (maximum ${tier.maxLegs})` : ''}`, 'Prices are external references, not BetPawa quotes. Confirm every selection and the final total on BetPawa. This is market ranking, not a score prediction or an independent forecast.'];
+  try { await navigator.clipboard.writeText(lines.join('\n')); toast('Receipt copied. Check every pick and the final total on BetPawa.'); } catch { toast('Clipboard unavailable. You can read the picks in Suggested slips.'); }
 }
 function addSelection() {
   const f = fixture(); if (!f) return;
@@ -390,6 +398,13 @@ function init() {
   $('#autoSlipGrid').addEventListener('click', e => {
     const copy = e.target.closest('[data-copy-suggestion]'); if (copy) copySuggestedSlip(copy.dataset.copySuggestion);
     const record = e.target.closest('[data-record-suggestion]'); if (record) recordSuggestedSlip(record.dataset.recordSuggestion);
+  });
+  $('#buildCustomSlip').addEventListener('click', () => {
+    const target = Number($('#customOddsTarget').value);
+    if (!Number.isFinite(target) || target < 2 || target > 1000) { toast('Choose a combined target from 2 to 1,000.'); return; }
+    state.customSlipRequested = true;
+    buildSuggestedSlips();
+    $('#autoSlipGrid .tier-custom')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
   $('#budgetForm').addEventListener('submit', e => {
     e.preventDefault(); const budget = Number($('#monthlyBudget').value);
