@@ -20,7 +20,9 @@ export default async function handler(request) {
   }
 
   const host = sport === 'football' ? 'https://v3.football.api-sports.io' : 'https://v1.basketball.api-sports.io';
-  const params = phase === 'live' ? { live: 'all', timezone: 'Africa/Kampala' } : { date, timezone: 'Africa/Kampala' };
+  // API-Basketball v1 has no `live` query parameter. Fetch today's games and
+  // filter by the returned game status; API-Football supports live=all.
+  const params = phase === 'live' && sport === 'football' ? { live: 'all', timezone: 'Africa/Kampala' } : { date, timezone: 'Africa/Kampala' };
   const endpoint = new URL(`${host}/${sport === 'football' ? 'fixtures' : 'games'}`);
   endpoint.search = new URLSearchParams(params).toString();
   try {

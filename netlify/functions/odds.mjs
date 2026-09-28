@@ -1,6 +1,6 @@
 import { json, safeProviderError } from './shared.mjs';
 
-const allowed = new Set(['soccer_epl', 'soccer_germany_bundesliga', 'soccer_france_ligue_one', 'soccer_uefa_champs_league', 'soccer_uefa_nations_league', 'basketball_nba', 'basketball_euroleague']);
+const allowed = new Set(['soccer_epl', 'soccer_germany_bundesliga', 'soccer_france_ligue_one', 'soccer_uefa_champs_league', 'soccer_uefa_nations_league', 'basketball_nba', 'basketball_nba_preseason', 'basketball_nba_all_stars', 'basketball_nba_summer_league', 'basketball_wnba', 'basketball_ncaab', 'basketball_wncaab', 'basketball_nbl', 'basketball_euroleague']);
 const marketLabels = { h2h: 'Match result', totals: 'Total goals/points', btts: 'Both teams to score' };
 
 function shapeEvent(event, sport, regions) {

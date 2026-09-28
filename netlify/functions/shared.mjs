@@ -13,10 +13,10 @@ export function normalizeGame(row, sport) {
     const finished = ['FT', 'AET', 'PEN', 'CANC', 'ABD', 'AWD', 'WO'].includes(status);
     return { id: `football-${row.fixture?.id}`, sport, phase: live ? 'live' : finished ? 'finished' : 'upcoming', status, clock: row.fixture?.status?.elapsed == null ? null : `${row.fixture.status.elapsed}'`, time: row.fixture?.date, league: row.league?.name || 'Competition unavailable', country: row.league?.country || '', home: row.teams?.home?.name || 'Home team', away: row.teams?.away?.name || 'Away team', homeBadge: row.teams?.home?.name?.slice(0, 1) || '?', awayBadge: row.teams?.away?.name?.slice(0, 1) || '?', score: { home: row.goals?.home, away: row.goals?.away }, venue: row.fixture?.venue?.name || null };
   }
-  const status = row.status?.short || 'UNK';
-  const live = ['Q1', 'Q2', 'Q3', 'Q4', 'OT', 'BT', 'HT'].includes(status);
-  const finished = ['FT', 'AOT', 'CANC', 'POST', 'ABD', 'AWD'].includes(status);
-  return { id: `basketball-${row.id}`, sport, phase: live ? 'live' : finished ? 'finished' : 'upcoming', status, clock: row.status?.timer || null, time: row.date?.start || row.date || null, league: row.league?.name || 'Competition unavailable', country: row.country?.name || '', home: row.teams?.home?.name || 'Home team', away: row.teams?.away?.name || 'Away team', homeBadge: row.teams?.home?.name?.slice(0, 1) || '?', awayBadge: row.teams?.away?.name?.slice(0, 1) || '?', score: { home: row.scores?.home?.total ?? null, away: row.scores?.away?.total ?? null }, venue: row.venue?.name || null };
+  const status = String(row.status?.short || 'UNK').toUpperCase();
+  const live = ['Q1', 'Q2', 'Q3', 'Q4', 'OT', 'BT', 'HT', 'LIVE', 'IN PROGRESS', '1', '2'].includes(status);
+  const finished = ['FT', 'AOT', 'CANC', 'POST', 'ABD', 'AWD', 'FINISHED', '3'].includes(status);
+  return { id: `basketball-${row.id}`, sport, phase: live ? 'live' : finished ? 'finished' : 'upcoming', status, clock: row.status?.timer || null, time: row.date?.start || row.date || null, league: row.league?.name || 'Competition unavailable', country: row.country?.name || '', home: row.teams?.home?.name || 'Home team', away: row.teams?.away?.name || 'Away team', homeBadge: row.teams?.home?.name?.slice(0, 1) || '?', awayBadge: row.teams?.away?.name?.slice(0, 1) || '?', score: { home: row.scores?.home?.total ?? row.scores?.home ?? null, away: row.scores?.away?.total ?? row.scores?.away ?? null }, venue: row.venue?.name || null };
 }
 
 export function safeProviderError(payload, secret, fallback) {

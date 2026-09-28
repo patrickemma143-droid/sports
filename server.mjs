@@ -38,7 +38,7 @@ const server = createServer(async (req, res) => {
         return;
       }
       const host = sport === 'football' ? 'https://v3.football.api-sports.io' : 'https://v1.basketball.api-sports.io';
-      const params = phase === 'live' ? { live: 'all', timezone: 'Africa/Kampala' } : { date, timezone: 'Africa/Kampala' };
+      const params = phase === 'live' && sport === 'football' ? { live: 'all', timezone: 'Africa/Kampala' } : { date, timezone: 'Africa/Kampala' };
       const endpoint = new URL(`${host}/${sport === 'football' ? 'fixtures' : 'games'}`);
       endpoint.search = new URLSearchParams(params).toString();
       const cacheKey = endpoint.toString();
@@ -70,7 +70,7 @@ const server = createServer(async (req, res) => {
       }
       const query = new URL(req.url, 'http://localhost').searchParams;
       const sport = query.get('sport') || '';
-      const allowed = new Set(['soccer_epl', 'soccer_germany_bundesliga', 'soccer_france_ligue_one', 'soccer_uefa_champs_league', 'soccer_uefa_nations_league', 'basketball_nba', 'basketball_euroleague']);
+      const allowed = new Set(['soccer_epl', 'soccer_germany_bundesliga', 'soccer_france_ligue_one', 'soccer_uefa_champs_league', 'soccer_uefa_nations_league', 'basketball_nba', 'basketball_nba_preseason', 'basketball_nba_all_stars', 'basketball_nba_summer_league', 'basketball_wnba', 'basketball_ncaab', 'basketball_wncaab', 'basketball_nbl', 'basketball_euroleague']);
       if (!allowed.has(sport)) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'Choose a supported sport key from SETUP.md.' }));
@@ -129,10 +129,10 @@ function normalizeGame(row, sport) {
     const finished = ['FT', 'AET', 'PEN', 'CANC', 'ABD', 'AWD', 'WO'].includes(status);
     return { id: `football-${row.fixture?.id}`, sport, phase: live ? 'live' : finished ? 'finished' : 'upcoming', status, clock: row.fixture?.status?.elapsed == null ? null : `${row.fixture.status.elapsed}'`, time: row.fixture?.date, league: row.league?.name || 'Competition unavailable', country: row.league?.country || '', home: row.teams?.home?.name || 'Home team', away: row.teams?.away?.name || 'Away team', homeBadge: row.teams?.home?.name?.slice(0, 1) || '?', awayBadge: row.teams?.away?.name?.slice(0, 1) || '?', score: { home: row.goals?.home, away: row.goals?.away }, venue: row.fixture?.venue?.name || null };
   }
-  const status = row.status?.short || 'UNK';
-  const live = ['Q1', 'Q2', 'Q3', 'Q4', 'OT', 'BT', 'HT'].includes(status);
-  const finished = ['FT', 'AOT', 'CANC', 'POST', 'ABD', 'AWD'].includes(status);
-  return { id: `basketball-${row.id}`, sport, phase: live ? 'live' : finished ? 'finished' : 'upcoming', status, clock: row.status?.timer || null, time: row.date?.start || row.date || null, league: row.league?.name || 'Competition unavailable', country: row.country?.name || '', home: row.teams?.home?.name || 'Home team', away: row.teams?.away?.name || 'Away team', homeBadge: row.teams?.home?.name?.slice(0, 1) || '?', awayBadge: row.teams?.away?.name?.slice(0, 1) || '?', score: { home: row.scores?.home?.total ?? null, away: row.scores?.away?.total ?? null }, venue: row.venue?.name || null };
+  const status = String(row.status?.short || 'UNK').toUpperCase();
+  const live = ['Q1', 'Q2', 'Q3', 'Q4', 'OT', 'BT', 'HT', 'LIVE', 'IN PROGRESS', '1', '2'].includes(status);
+  const finished = ['FT', 'AOT', 'CANC', 'POST', 'ABD', 'AWD', 'FINISHED', '3'].includes(status);
+  return { id: `basketball-${row.id}`, sport, phase: live ? 'live' : finished ? 'finished' : 'upcoming', status, clock: row.status?.timer || null, time: row.date?.start || row.date || null, league: row.league?.name || 'Competition unavailable', country: row.country?.name || '', home: row.teams?.home?.name || 'Home team', away: row.teams?.away?.name || 'Away team', homeBadge: row.teams?.home?.name?.slice(0, 1) || '?', awayBadge: row.teams?.away?.name?.slice(0, 1) || '?', score: { home: row.scores?.home?.total ?? row.scores?.home ?? null, away: row.scores?.away?.total ?? row.scores?.away ?? null }, venue: row.venue?.name || null };
 }
 
 const port = Number(process.env.PORT || 4173);

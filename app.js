@@ -23,8 +23,15 @@ function oddsSportKey(f) {
     if (league.includes('nations league') && league.includes('uefa')) return 'soccer_uefa_nations_league';
   }
   if (f.sport === 'basketball') {
+    if (league.includes('wnba')) return 'basketball_wnba';
+    if ((league.includes('ncaa') || league.includes('college')) && (league.includes('women') || league.includes('women\'s'))) return 'basketball_wncaab';
+    if (league.includes('ncaa') || league.includes('college basketball')) return 'basketball_ncaab';
+    if (league.includes('summer league')) return 'basketball_nba_summer_league';
+    if (league.includes('all star')) return 'basketball_nba_all_stars';
+    if (league.includes('preseason') && league.includes('nba')) return 'basketball_nba_preseason';
     if (league.includes('nba')) return 'basketball_nba';
     if (league.includes('euroleague')) return 'basketball_euroleague';
+    if (league.includes('nbl') && (league.includes('australia') || league.includes('australian'))) return 'basketball_nbl';
   }
   return null;
 }
@@ -195,13 +202,18 @@ async function loadLiveGames() {
   const sports = state.filter === 'football' ? ['football'] : state.filter === 'basketball' ? ['basketball'] : ['football', 'basketball'];
   button.disabled = true; button.textContent = 'Loading…';
   try {
-    const responses = await Promise.all(sports.map(async sport => {
-      const response = await fetch(`/api/games?sport=${encodeURIComponent(sport)}&phase=${encodeURIComponent(state.phase)}`, { cache: 'no-store' });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `Could not load ${sport}.`);
-      return data;
+    const results = await Promise.all(sports.map(async sport => {
+      try {
+        const response = await fetch(`/api/games?sport=${encodeURIComponent(sport)}&phase=${encodeURIComponent(state.phase)}`, { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `Could not load ${sport}.`);
+        return { sport, data, error: null };
+      } catch (error) { return { sport, data: null, error: error.message || `Could not load ${sport}.` }; }
     }));
-    state.liveFixtures = responses.flatMap(data => (data.events || []).map(event => ({ ...event, updatedAt: data.updatedAt })));
+    const successful = results.filter(result => result.data);
+    const failures = results.filter(result => result.error);
+    if (!successful.length) throw new Error(failures.map(result => `${result.sport}: ${result.error}`).join(' · ') || 'No sports feeds responded.');
+    state.liveFixtures = successful.flatMap(result => (result.data.events || []).map(event => ({ ...event, updatedAt: result.data.updatedAt })));
     const apiStatus = await fetch(`/api/status?refresh=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).catch(() => ({}));
     if (apiStatus.oddsApi) {
       const marketKeys = [...new Set(state.liveFixtures.map(oddsSportKey).filter(Boolean))];
@@ -219,7 +231,11 @@ async function loadLiveGames() {
     state.fixtureId = state.liveFixtures[0]?.id || null;
     renderFixtures(); renderWatchlist();
     state.fixtureId ? selectFixture(state.fixtureId) : renderEmptyAnalysis();
-    toast(state.liveFixtures.length ? `Loaded ${state.liveFixtures.length} ${state.phase} games. Only matched market reference odds are shown; no model forecast is active.` : `No ${state.phase} games were returned for this date.`);
+    const stamp = successful.map(result => result.data.updatedAt).filter(Boolean).sort().at(-1);
+    const feedStatus = $('#fixtureFeedStatus');
+    if (feedStatus) feedStatus.textContent = stamp ? `${state.phase === 'live' ? 'Live scores snapshot' : 'Fixture snapshot'} · updated ${new Date(stamp).toLocaleTimeString([], { timeZone: 'Africa/Kampala', hour: '2-digit', minute: '2-digit' })} Kampala time · refresh manually` : 'Provider snapshot · refresh manually';
+    const partial = failures.length ? ` ${failures.map(result => `${result.sport}: ${result.error}`).join(' · ')}` : '';
+    toast(state.liveFixtures.length ? `Loaded ${state.liveFixtures.length} ${state.phase} games.${partial} Odds are separate references; no model forecast is active.` : `No ${state.phase} games were returned for this date.${partial}`);
   } catch (error) {
     state.liveFixtures = []; state.fixtureId = null; renderFixtures(); renderWatchlist(); renderEmptyAnalysis();
     toast(error.message.includes('API-Sports is not connected') ? 'Add your API-Sports key to the local .env file and restart the app.' : error.message);
