@@ -4,13 +4,11 @@ const allowed = new Set(['soccer_epl', 'soccer_germany_bundesliga', 'soccer_fran
 const marketLabels = { h2h: 'Match result', totals: 'Total goals/points', btts: 'Both teams to score' };
 
 function shapeEvent(event, sport, regions) {
-  const markets = Object.keys(marketLabels).flatMap(key => {
-    const book = (event.bookmakers || []).find(item => item.markets?.some(market => market.key === key));
-    const market = book?.markets?.find(item => item.key === key);
-    if (!market) return [];
-    return [{ key, label: marketLabels[key], bookmaker: book.title, updatedAt: market.last_update || book.last_update || null, odds: (market.outcomes || []).map(outcome => ({ name: outcome.name, price: outcome.price, point: outcome.point ?? null })) }];
-  });
-  const result = markets.find(market => market.key === 'h2h');
+  // Keep each returned bookmaker/market pair so valid alternate prices aren't hidden.
+  const markets = (event.bookmakers || []).flatMap(book => (book.markets || [])
+    .filter(market => marketLabels[market.key])
+    .map(market => ({ key: `${market.key}-${book.key}`, type: market.key, label: marketLabels[market.key], bookmaker: book.title, updatedAt: market.last_update || book.last_update || null, odds: (market.outcomes || []).map(outcome => ({ name: outcome.name, price: outcome.price, point: outcome.point ?? null })) })));
+  const result = markets.find(market => market.type === 'h2h');
   return { id: `odds-${event.id}`, oddsEventId: event.id, sportKey: sport, live: false, sport: sport.startsWith('basketball') ? 'basketball' : 'football', league: event.sport_title, time: event.commence_time, home: event.home_team, away: event.away_team, homeBadge: event.home_team?.slice(0, 1) || '?', awayBadge: event.away_team?.slice(0, 1) || '?', bookmaker: result?.bookmaker || null, region: regions, odds: result?.odds || [], markets, updatedAt: result?.updatedAt || null };
 }
 

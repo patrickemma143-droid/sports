@@ -19,3 +19,8 @@
   from = "/api/odds"
   to = "/.netlify/functions/odds"
   status = 200
+
+[[redirects]]
+  from = "/api/fixture-odds"
+  to = "/.netlify/functions/fixture-odds"
+  status = 200
