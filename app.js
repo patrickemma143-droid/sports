@@ -7,7 +7,13 @@ const sourceCards = [
 ];
 const savedFinance = (() => { try { return JSON.parse(localStorage.getItem('fieldnote-finance-v1') || '{}'); } catch { return {}; } })();
 const savedSlip = (() => { try { const value = JSON.parse(localStorage.getItem('fieldnote-slip-v1') || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } })();
-const state = { fixtureId: null, filter: 'all', phase: 'upcoming', slip: savedSlip, suggestions: {}, watch: [], liveFixtures: [], feedLoaded: false, monthlyLimit: Number(savedFinance.monthlyLimit) || 0, ledger: Array.isArray(savedFinance.ledger) ? savedFinance.ledger : [] };
+function kampalaDateValue(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Kampala', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+  return `${parts.find(part => part.type === 'year').value}-${parts.find(part => part.type === 'month').value}-${parts.find(part => part.type === 'day').value}`;
+}
+function dateAfter(value, days) { const date = new Date(`${value}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10); }
+const initialFixtureDate = kampalaDateValue();
+const state = { fixtureId: null, filter: 'all', phase: 'upcoming', selectedDate: initialFixtureDate, slip: savedSlip, suggestions: {}, watch: [], liveFixtures: [], feedLoaded: false, monthlyLimit: Number(savedFinance.monthlyLimit) || 0, ledger: Array.isArray(savedFinance.ledger) ? savedFinance.ledger : [] };
 const suggestionTiers = [{ id: 'low', name: 'Lower risk', targetOdds: 2 }, { id: 'high', name: 'High risk', targetOdds: 10 }, { id: 'very-high', name: 'Very high risk', targetOdds: 30 }];
 const $ = (q, root = document) => root.querySelector(q);
 const $$ = (q, root = document) => [...root.querySelectorAll(q)];
@@ -300,7 +306,9 @@ async function loadLiveGames() {
   try {
     const results = await Promise.all(sports.map(async sport => {
       try {
-        const response = await fetch(`/api/games?sport=${encodeURIComponent(sport)}&phase=${encodeURIComponent(state.phase)}`, { cache: 'no-store' });
+        const params = new URLSearchParams({ sport, phase: state.phase });
+        if (state.phase === 'upcoming') params.set('date', state.selectedDate);
+        const response = await fetch(`/api/games?${params}`, { cache: 'no-store' });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || `Could not load ${sport}.`);
         return { sport, data, error: null };
@@ -330,7 +338,7 @@ async function loadLiveGames() {
     const stamp = successful.map(result => result.data.updatedAt).filter(Boolean).sort().at(-1);
     state.feedLoaded = true; buildSuggestedSlips();
     const feedStatus = $('#fixtureFeedStatus');
-    if (feedStatus) feedStatus.textContent = stamp ? `${state.phase === 'live' ? 'Live scores snapshot' : 'Fixture snapshot'} · updated ${new Date(stamp).toLocaleTimeString([], { timeZone: 'Africa/Kampala', hour: '2-digit', minute: '2-digit' })} Kampala time · refresh manually` : 'Provider snapshot · refresh manually';
+    if (feedStatus) feedStatus.textContent = stamp ? `${state.phase === 'live' ? 'Live scores snapshot' : `Fixtures for ${state.selectedDate}`} · updated ${new Date(stamp).toLocaleTimeString([], { timeZone: 'Africa/Kampala', hour: '2-digit', minute: '2-digit' })} Kampala time · refresh manually` : 'Provider snapshot · refresh manually';
     const partial = failures.length ? ` ${failures.map(result => `${result.sport}: ${result.error}`).join(' · ')}` : '';
     toast(state.liveFixtures.length ? `Loaded ${state.liveFixtures.length} ${state.phase} games.${partial} Odds are separate references; no model forecast is active.` : `No ${state.phase} games were returned for this date.${partial}`);
   } catch (error) {
@@ -340,6 +348,9 @@ async function loadLiveGames() {
   } finally { button.disabled = false; button.textContent = `↻ Load ${state.phase} games`; }
 }
 function init() {
+  $('#fixtureDate').min = initialFixtureDate;
+  $('#fixtureDate').max = dateAfter(initialFixtureDate, 30);
+  $('#fixtureDate').value = state.selectedDate;
   renderSources(); renderFixtures(); renderWatchlist(); renderEmptyAnalysis(); renderSlip();
   renderFinance();
   $('#gamesTracked').textContent = '00';
@@ -401,7 +412,17 @@ function init() {
   $('#showModel').addEventListener('click', () => toast('Forecasting is unavailable until historical data is connected and a sport-specific model passes time-ordered validation.'));
   $('#dismissWarning').addEventListener('click', () => $('#dismissWarning').closest('.callout-warning').style.display = 'none');
   $('#helpButton').addEventListener('click', () => setView('sources'));
-  $('#dateFilter').addEventListener('click', () => toast('Fixture date selection requires a schedule feed; none is connected.'));
+  $('#fixtureDate').addEventListener('change', e => {
+    if (!e.target.value) return;
+    state.selectedDate = e.target.value;
+    if (state.phase !== 'upcoming') {
+      state.phase = 'upcoming';
+      $$('.phase-button').forEach(button => button.classList.toggle('selected', button.dataset.phase === 'upcoming'));
+      $('#fixturePhaseLabel').textContent = 'UPCOMING GAMES';
+      $('#loadLiveGames').textContent = '↻ Load upcoming games';
+    }
+    loadLiveGames();
+  });
   $('#accountShortcut').addEventListener('click', () => setView('sources'));
   $('#loadLiveGames').addEventListener('click', loadLiveGames);
   document.addEventListener('click', e => { const b = e.target.closest('[data-select]'); if (b && !b.closest('#fixtureList')) selectFixture(b.dataset.select); });
