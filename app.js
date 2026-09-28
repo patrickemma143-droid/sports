@@ -7,7 +7,8 @@ const sourceCards = [
 ];
 const savedFinance = (() => { try { return JSON.parse(localStorage.getItem('fieldnote-finance-v1') || '{}'); } catch { return {}; } })();
 const savedSlip = (() => { try { const value = JSON.parse(localStorage.getItem('fieldnote-slip-v1') || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } })();
-const state = { fixtureId: null, filter: 'all', phase: 'upcoming', slip: savedSlip, watch: [], liveFixtures: [], monthlyLimit: Number(savedFinance.monthlyLimit) || 0, ledger: Array.isArray(savedFinance.ledger) ? savedFinance.ledger : [] };
+const state = { fixtureId: null, filter: 'all', phase: 'upcoming', slip: savedSlip, suggestions: {}, watch: [], liveFixtures: [], feedLoaded: false, monthlyLimit: Number(savedFinance.monthlyLimit) || 0, ledger: Array.isArray(savedFinance.ledger) ? savedFinance.ledger : [] };
+const suggestionTiers = [{ id: 'low', name: 'Lower risk', targetOdds: 2 }, { id: 'high', name: 'High risk', targetOdds: 10 }, { id: 'very-high', name: 'Very high risk', targetOdds: 30 }];
 const $ = (q, root = document) => root.querySelector(q);
 const $$ = (q, root = document) => [...root.querySelectorAll(q)];
 const allFixtures = () => state.liveFixtures;
@@ -83,16 +84,22 @@ function kampalaMonth(date = new Date()) { return new Intl.DateTimeFormat('en-CA
 function ugx(amount) { return `UGX ${Math.round(Number(amount) || 0).toLocaleString('en-US')}`; }
 function saveFinance() { try { localStorage.setItem('fieldnote-finance-v1', JSON.stringify({ monthlyLimit: state.monthlyLimit, ledger: state.ledger })); } catch { toast('This browser could not save the finance tracker.'); } }
 function saveSlip() { try { localStorage.setItem('fieldnote-slip-v1', JSON.stringify(state.slip)); } catch { toast('This browser could not save the slip.'); } }
+function monthEntries() { return state.ledger.filter(b => kampalaMonth(new Date(b.createdAt)) === kampalaMonth()); }
+function currentAvailableBudget() {
+  const entries = monthEntries(); const staked = entries.reduce((sum, b) => sum + Number(b.stake || 0), 0);
+  const paidBack = entries.reduce((sum, b) => sum + (b.result === 'won' ? Number(b.stake) * Number(b.odds) : b.result === 'void' ? Number(b.stake) : 0), 0);
+  return state.monthlyLimit - staked + paidBack;
+}
 function renderFinance() {
-  const month = kampalaMonth(); const entries = state.ledger.filter(b => kampalaMonth(new Date(b.createdAt)) === month);
+  const entries = monthEntries();
   const staked = entries.reduce((sum, b) => sum + Number(b.stake || 0), 0);
   const wins = entries.filter(b => b.result === 'won').length; const losses = entries.filter(b => b.result === 'lost').length;
   const pending = entries.filter(b => b.result === 'pending').length;
   const net = entries.reduce((sum, b) => sum + (b.result === 'won' ? Number(b.stake) * (Number(b.odds) - 1) : b.result === 'lost' ? -Number(b.stake) : 0), 0);
   $('#monthlyBudget').value = state.monthlyLimit || '';
   $('#financeStaked').textContent = ugx(staked);
-  $('#financeRemaining').textContent = state.monthlyLimit ? ugx(state.monthlyLimit - staked) : 'UGX —';
-  $('#financeBudgetStatus').textContent = state.monthlyLimit ? `${((staked / state.monthlyLimit) * 100).toFixed(0)}% of your limit recorded` : 'Set a monthly limit';
+  $('#financeRemaining').textContent = state.monthlyLimit ? ugx(currentAvailableBudget()) : 'UGX —';
+  $('#financeBudgetStatus').textContent = state.monthlyLimit ? `Includes ${wins} settled wins; pending stakes reduce balance` : 'Set a monthly limit';
   $('#financeNet').textContent = `${net > 0 ? '+' : ''}${ugx(net)}`;
   $('#financeRecord').textContent = `${wins} / ${losses}`; $('#financePending').textContent = `${pending} pending`;
   $('#financeLedger').innerHTML = state.ledger.length ? [...state.ledger].sort((a,b) => b.createdAt.localeCompare(a.createdAt)).map(b => `<article class="ledger-row"><div class="ledger-game"><b>${escapeHTML(b.fixture)}</b><small>${escapeHTML(b.sport.toUpperCase())} · ${new Date(b.createdAt).toLocaleDateString('en-UG')}</small></div><div><b>${escapeHTML(b.selection)}</b><small>BetPawa price entered: @ ${Number(b.odds).toFixed(2)} · stake ${ugx(b.stake)}${b.marketOdds ? ` · external ref @ ${Number(b.marketOdds).toFixed(2)}` : ''}</small></div><div class="ledger-result"><b>${b.result === 'won' ? `+${ugx(Number(b.stake) * (Number(b.odds) - 1))}` : b.result === 'lost' ? `−${ugx(b.stake)}` : b.result === 'void' ? 'Void' : 'Pending'}</b><select data-result="${escapeHTML(b.id)}" aria-label="Update result for ${escapeHTML(b.fixture)}"><option value="pending" ${b.result === 'pending' ? 'selected' : ''}>Pending</option><option value="won" ${b.result === 'won' ? 'selected' : ''}>Won</option><option value="lost" ${b.result === 'lost' ? 'selected' : ''}>Lost</option><option value="void" ${b.result === 'void' ? 'selected' : ''}>Void</option></select></div></article>`).join('') : '<div class="slip-empty">No stakes recorded yet. Set a monthly limit, then track a selection from a fixture with matched odds.</div>';
@@ -194,6 +201,65 @@ function renderSlip() {
   updateSlipReturn();
   $$('[data-remove]').forEach(b => b.addEventListener('click', () => { state.slip.splice(Number(b.dataset.remove), 1); saveSlip(); renderSlip(); }));
 }
+function marketCandidates() {
+  return state.liveFixtures.flatMap(game => {
+    const markets = availableMarkets(game); const options = markets.flatMap(market => {
+      const outcomes = (market.odds || []).filter(outcome => Number(outcome.price) > 1); const total = outcomes.reduce((sum, outcome) => sum + 1 / Number(outcome.price), 0);
+      if (!total) return [];
+      return outcomes.map(outcome => ({ game, market, outcome, probability: (1 / Number(outcome.price)) / total }));
+    }).sort((a, b) => b.probability - a.probability || Number(a.outcome.price) - Number(b.outcome.price));
+    return options.length ? [options[0]] : [];
+  }).sort((a, b) => b.probability - a.probability || Number(a.outcome.price) - Number(b.outcome.price));
+}
+function buildSuggestedSlips() {
+  const candidates = marketCandidates(); state.suggestions = {};
+  for (const tier of suggestionTiers) {
+    const picks = []; let combined = 1; let marketShare = 1;
+    for (const candidate of candidates) {
+      picks.push(candidate); combined *= Number(candidate.outcome.price); marketShare *= candidate.probability;
+      if (combined >= tier.targetOdds) break;
+    }
+    state.suggestions[tier.id] = { ...tier, picks, combined, marketShare, ready: picks.length > 0 && combined >= tier.targetOdds };
+  }
+  renderSuggestedSlips(candidates.length);
+}
+function renderSuggestedSlips(candidateCount) {
+  const tiers = suggestionTiers.map(tier => state.suggestions[tier.id]).filter(Boolean);
+  const available = state.liveFixtures.length;
+  $('#autoSlipStatus').textContent = state.feedLoaded ? `${state.phase.toUpperCase()} · ${candidateCount} of ${available} loaded matches have matched prices` : 'Waiting for game and odds data';
+  $('#autoSlipGrid').innerHTML = tiers.map(tier => {
+    const alreadyRecorded = state.ledger.some(entry => entry.suggestionId === `${state.phase}:${tier.id}:${tier.picks.map(pick => pick.game.id).join(',')}`);
+    const legs = tier.picks.map((pick, index) => {
+      const game = pick.game; const outcome = pick.outcome;
+      const line = `${pick.market.label || pick.market.key}: ${outcome.name}${outcome.point != null ? ` ${outcome.point}` : ''}`;
+      return `<li><span class="auto-pick-number">${String(index + 1).padStart(2, '0')}</span><span class="auto-pick-main"><b>${escapeHTML(game.home)} vs ${escapeHTML(game.away)}</b><small>${escapeHTML(game.phase.toUpperCase())} · ${escapeHTML(game.sport.toUpperCase())} · ${escapeHTML(game.league)} · ${escapeHTML(line)}</small><small>${escapeHTML(pick.market.bookmaker || 'External market')} reference · ${(pick.probability * 100).toFixed(1)}% margin-removed market share</small></span><strong>@${Number(outcome.price).toFixed(2)}</strong></li>`;
+    }).join('');
+    const status = alreadyRecorded ? '<p class="auto-slip-message">Already recorded in Finances for this loaded set.</p>' : !tier.ready ? `<p class="auto-slip-message">${candidateCount ? `The top-ranked market outcomes reach only @${tier.combined.toFixed(2)}, below @${tier.targetOdds.toFixed(2)}. This slip is withheld instead of padded with long shots.` : 'No matched bookmaker odds in the loaded games, so this market-based slip cannot be built.'}</p>` : '';
+    const controls = tier.ready && !alreadyRecorded ? `<div class="auto-slip-inputs"><label>BetPawa combined odds<input data-auto-odds="${tier.id}" type="number" min="1.01" step="0.01" placeholder="Check the total on BetPawa" /></label><label>Stake (UGX)<input data-auto-stake="${tier.id}" inputmode="numeric" type="number" min="1" step="500" placeholder="Your chosen stake" /></label></div><small class="auto-return" data-auto-return="${tier.id}">Enter the actual BetPawa total and stake to estimate the gross return.</small><div class="auto-slip-actions"><button class="button button-outline" data-copy-suggestion="${tier.id}" type="button">Copy picks</button><button class="button button-primary" data-record-suggestion="${tier.id}" type="button">Record after placing</button></div>` : '';
+    return `<article class="auto-tier tier-${tier.id}"><div class="auto-tier-top"><span class="auto-tier-name">${escapeHTML(tier.name)}</span><span class="auto-tier-target">MIN @${tier.targetOdds.toFixed(2)}</span></div><h3>${tier.ready ? `${tier.picks.length} strongest available market picks` : 'Slip unavailable for this feed snapshot'}</h3>${tier.ready ? `<p class="auto-tier-total">Reference total <b>@${tier.combined.toFixed(2)}</b><small>Rough market-share product ${(tier.marketShare * 100).toFixed(2)}% · assumes different matches are independent; not a forecast.</small></p><ol class="auto-pick-list">${legs}</ol>` : `<p class="auto-slip-message">${candidateCount ? `Top-ranked outcomes combine to @${tier.combined.toFixed(2)}, below the requested minimum of @${tier.targetOdds.toFixed(2)}.` : 'No matched bookmaker odds in this snapshot, so there are no evidence-backed picks to display.'}</p>`}${status}${controls}</article>`;
+  }).join('');
+}
+function recordSuggestedSlip(id) {
+  const tier = state.suggestions[id]; if (!tier?.ready) return;
+  const actualOdds = Number($(`[data-auto-odds="${id}"]`).value); const stake = Number($(`[data-auto-stake="${id}"]`).value);
+  if (!Number.isFinite(actualOdds) || actualOdds < tier.targetOdds || !Number.isFinite(stake) || stake <= 0) { toast(`Enter the actual BetPawa total (at least ${tier.targetOdds.toFixed(2)}) and a positive stake.`); return; }
+  if (!state.monthlyLimit) { toast('Set your monthly betting limit in Finances before recording a stake.'); setView('finance'); $('#monthlyBudget').focus(); return; }
+  const available = currentAvailableBudget(); if (stake > available) { toast(`This exceeds your current available budget of ${ugx(available)}.`); return; }
+  const sports = [...new Set(tier.picks.map(pick => pick.game.sport))];
+  const selection = tier.picks.map(pick => `${pick.game.home} vs ${pick.game.away} — ${pick.market.label || pick.market.key}: ${pick.outcome.name}${pick.outcome.point != null ? ` ${pick.outcome.point}` : ''} @ ${Number(pick.outcome.price).toFixed(2)} ref`).join(' | ');
+  const suggestionId = `${state.phase}:${id}:${tier.picks.map(pick => pick.game.id).join(',')}`;
+  state.ledger.push({ id: crypto.randomUUID(), suggestionId, slipTier: tier.name, createdAt: new Date().toISOString(), fixture: `${tier.name} · ${tier.picks.length} picks`, sport: sports.length === 1 ? sports[0] : 'mixed', selection, odds: actualOdds, marketOdds: tier.combined, stake, result: 'pending', bookmaker: 'BetPawa (confirmed by you)' });
+  saveFinance(); renderFinance(); renderSuggestedSlips(marketCandidates().length); toast('Slip added to Finances as pending. Set its result after BetPawa settles it.');
+}
+function updateSuggestedReturn(id) {
+  const odds = Number($(`[data-auto-odds="${id}"]`)?.value); const stake = Number($(`[data-auto-stake="${id}"]`)?.value); const output = $(`[data-auto-return="${id}"]`);
+  if (output) output.textContent = odds > 1 && stake > 0 ? `Possible gross return: ${ugx(odds * stake)} · profit over stake: ${ugx((odds - 1) * stake)}. Estimate only.` : 'Enter the actual BetPawa total and stake to estimate the gross return.';
+}
+async function copySuggestedSlip(id) {
+  const tier = state.suggestions[id]; if (!tier?.ready) return;
+  const lines = [`${tier.name} — minimum odds ${tier.targetOdds.toFixed(2)}`, ...tier.picks.map((pick, index) => `${index + 1}. ${pick.game.sport.toUpperCase()} · ${pick.game.home} vs ${pick.game.away} · ${pick.market.label || pick.market.key}: ${pick.outcome.name}${pick.outcome.point != null ? ` ${pick.outcome.point}` : ''} @ ${Number(pick.outcome.price).toFixed(2)} reference`), `Reference combined odds: ${tier.combined.toFixed(2)}`, 'Prices are external references, not BetPawa quotes. Confirm every selection and the final total on BetPawa. This is not an independent prediction.'];
+  try { await navigator.clipboard.writeText(lines.join('\n')); toast('Market-ranked picks copied. Verify them on BetPawa before tracking.'); } catch { toast('Clipboard unavailable. You can read the picks in Suggested slips.'); }
+}
 function addSelection() {
   const f = fixture(); if (!f) return;
   const market = selectedMarket(); const options = (market?.odds || []).filter(x => x.price > 1); const pick = options[Number($('#selectionOutcome').value)];
@@ -215,8 +281,7 @@ function recordSlip() {
   const stake = Number($('#slipStake').value); const combined = state.slip.length ? state.slip.reduce((product, item) => product * Number(item.odds), 1) : 0;
   if (!state.slip.length || !Number.isFinite(stake) || stake <= 0 || combined <= 1) { toast('Add priced picks and enter the stake for this complete slip.'); return; }
   if (!state.monthlyLimit) { toast('Set your monthly limit in Finances before recording this stake.'); setView('finance'); $('#monthlyBudget').focus(); return; }
-  const used = state.ledger.filter(b => kampalaMonth(new Date(b.createdAt)) === kampalaMonth()).reduce((sum, b) => sum + Number(b.stake || 0), 0);
-  if (used + stake > state.monthlyLimit) { toast(`This exceeds your remaining monthly limit of ${ugx(state.monthlyLimit - used)}.`); return; }
+  const available = currentAvailableBudget(); if (stake > available) { toast(`This exceeds your current available budget of ${ugx(available)}.`); return; }
   const sports = [...new Set(state.slip.map(item => item.sport))];
   state.ledger.push({ id: crypto.randomUUID(), createdAt: new Date().toISOString(), fixture: `${state.slip.length}-pick slip`, sport: sports.length === 1 ? sports[0] : 'mixed', selection: state.slip.map(item => `${item.fixture} — ${item.market} @ ${item.odds}`).join(' | '), odds: combined, stake, result: 'pending', bookmaker: 'BetPawa (entered by you)' });
   saveFinance(); renderFinance(); state.slip = []; $('#slipStake').value = ''; saveSlip(); renderSlip(); toast('Recorded one stake for the combined slip in your private tracker.');
@@ -231,7 +296,7 @@ function setView(name) {
 async function loadLiveGames() {
   const button = $('#loadLiveGames');
   const sports = state.filter === 'football' ? ['football'] : state.filter === 'basketball' ? ['basketball'] : ['football', 'basketball'];
-  button.disabled = true; button.textContent = 'Loading…';
+  button.disabled = true; button.textContent = 'Loading…'; $('#autoSlipStatus').textContent = 'Refreshing game and market data…';
   try {
     const results = await Promise.all(sports.map(async sport => {
       try {
@@ -263,12 +328,14 @@ async function loadLiveGames() {
     renderFixtures(); renderWatchlist();
     state.fixtureId ? selectFixture(state.fixtureId) : renderEmptyAnalysis();
     const stamp = successful.map(result => result.data.updatedAt).filter(Boolean).sort().at(-1);
+    state.feedLoaded = true; buildSuggestedSlips();
     const feedStatus = $('#fixtureFeedStatus');
     if (feedStatus) feedStatus.textContent = stamp ? `${state.phase === 'live' ? 'Live scores snapshot' : 'Fixture snapshot'} · updated ${new Date(stamp).toLocaleTimeString([], { timeZone: 'Africa/Kampala', hour: '2-digit', minute: '2-digit' })} Kampala time · refresh manually` : 'Provider snapshot · refresh manually';
     const partial = failures.length ? ` ${failures.map(result => `${result.sport}: ${result.error}`).join(' · ')}` : '';
     toast(state.liveFixtures.length ? `Loaded ${state.liveFixtures.length} ${state.phase} games.${partial} Odds are separate references; no model forecast is active.` : `No ${state.phase} games were returned for this date.${partial}`);
   } catch (error) {
     state.liveFixtures = []; state.fixtureId = null; renderFixtures(); renderWatchlist(); renderEmptyAnalysis();
+    state.feedLoaded = true; buildSuggestedSlips();
     toast(error.message.includes('API-Sports is not connected') ? 'Add your API-Sports key to the local .env file and restart the app.' : error.message);
   } finally { button.disabled = false; button.textContent = `↻ Load ${state.phase} games`; }
 }
@@ -276,6 +343,7 @@ function init() {
   renderSources(); renderFixtures(); renderWatchlist(); renderEmptyAnalysis(); renderSlip();
   renderFinance();
   $('#gamesTracked').textContent = '00';
+  buildSuggestedSlips();
   $$('.nav-item').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
   $$('[data-go]').forEach(b => b.addEventListener('click', () => setView(b.dataset.go)));
   $$('.filter-button').forEach(b => b.addEventListener('click', () => {
@@ -305,6 +373,13 @@ function init() {
   $('#manualSelection').addEventListener('input', updateAddPickAvailability);
   $('#slipStake').addEventListener('input', updateSlipReturn);
   $('#recordSlip').addEventListener('click', recordSlip);
+  $('#autoSlipGrid').addEventListener('input', e => {
+    const id = e.target.dataset.autoOdds || e.target.dataset.autoStake; if (id) updateSuggestedReturn(id);
+  });
+  $('#autoSlipGrid').addEventListener('click', e => {
+    const copy = e.target.closest('[data-copy-suggestion]'); if (copy) copySuggestedSlip(copy.dataset.copySuggestion);
+    const record = e.target.closest('[data-record-suggestion]'); if (record) recordSuggestedSlip(record.dataset.recordSuggestion);
+  });
   $('#budgetForm').addEventListener('submit', e => {
     e.preventDefault(); const budget = Number($('#monthlyBudget').value);
     if (!Number.isFinite(budget) || budget <= 0) { toast('Enter a monthly limit greater than zero.'); return; }
@@ -332,3 +407,7 @@ function init() {
   document.addEventListener('click', e => { const b = e.target.closest('[data-select]'); if (b && !b.closest('#fixtureList')) selectFixture(b.dataset.select); });
 }
 init();
+fetch('/api/status', { cache: 'no-store' }).then(response => response.json()).then(status => {
+  if (status.apiSports) loadLiveGames();
+  else { state.feedLoaded = true; $('#autoSlipStatus').textContent = 'Connect the sports-data feed to load games and build market slips'; buildSuggestedSlips(); }
+}).catch(() => { $('#autoSlipStatus').textContent = 'Could not check the connected game feed. Use Load upcoming games to retry.'; });
