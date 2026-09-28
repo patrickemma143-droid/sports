@@ -6,7 +6,8 @@ const sourceCards = [
   { mark: 'DB', name: 'Hosting and secure storage', type: 'DEPLOYMENT', detail: 'This build currently runs locally. Public launch needs a selected host, secrets configured there, access control, and a persistence plan.', status: 'NOT DEPLOYED', url: 'SETUP.md' }
 ];
 const savedFinance = (() => { try { return JSON.parse(localStorage.getItem('fieldnote-finance-v1') || '{}'); } catch { return {}; } })();
-const state = { fixtureId: null, filter: 'all', phase: 'upcoming', slip: [], watch: [], liveFixtures: [], monthlyLimit: Number(savedFinance.monthlyLimit) || 0, ledger: Array.isArray(savedFinance.ledger) ? savedFinance.ledger : [] };
+const savedSlip = (() => { try { const value = JSON.parse(localStorage.getItem('fieldnote-slip-v1') || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } })();
+const state = { fixtureId: null, filter: 'all', phase: 'upcoming', slip: savedSlip, watch: [], liveFixtures: [], monthlyLimit: Number(savedFinance.monthlyLimit) || 0, ledger: Array.isArray(savedFinance.ledger) ? savedFinance.ledger : [] };
 const $ = (q, root = document) => root.querySelector(q);
 const $$ = (q, root = document) => [...root.querySelectorAll(q)];
 const allFixtures = () => state.liveFixtures;
@@ -75,6 +76,7 @@ async function loadBtts() {
 function kampalaMonth(date = new Date()) { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Kampala', year: 'numeric', month: '2-digit' }).format(date); }
 function ugx(amount) { return `UGX ${Math.round(Number(amount) || 0).toLocaleString('en-US')}`; }
 function saveFinance() { try { localStorage.setItem('fieldnote-finance-v1', JSON.stringify({ monthlyLimit: state.monthlyLimit, ledger: state.ledger })); } catch { toast('This browser could not save the finance tracker.'); } }
+function saveSlip() { try { localStorage.setItem('fieldnote-slip-v1', JSON.stringify(state.slip)); } catch { toast('This browser could not save the slip.'); } }
 function renderFinance() {
   const month = kampalaMonth(); const entries = state.ledger.filter(b => kampalaMonth(new Date(b.createdAt)) === month);
   const staked = entries.reduce((sum, b) => sum + Number(b.stake || 0), 0);
@@ -90,13 +92,13 @@ function renderFinance() {
   $('#financeLedger').innerHTML = state.ledger.length ? [...state.ledger].sort((a,b) => b.createdAt.localeCompare(a.createdAt)).map(b => `<article class="ledger-row"><div class="ledger-game"><b>${escapeHTML(b.fixture)}</b><small>${escapeHTML(b.sport.toUpperCase())} · ${new Date(b.createdAt).toLocaleDateString('en-UG')}</small></div><div><b>${escapeHTML(b.selection)}</b><small>BetPawa price entered: @ ${Number(b.odds).toFixed(2)} · stake ${ugx(b.stake)}${b.marketOdds ? ` · external ref @ ${Number(b.marketOdds).toFixed(2)}` : ''}</small></div><div class="ledger-result"><b>${b.result === 'won' ? `+${ugx(Number(b.stake) * (Number(b.odds) - 1))}` : b.result === 'lost' ? `−${ugx(b.stake)}` : b.result === 'void' ? 'Void' : 'Pending'}</b><select data-result="${escapeHTML(b.id)}" aria-label="Update result for ${escapeHTML(b.fixture)}"><option value="pending" ${b.result === 'pending' ? 'selected' : ''}>Pending</option><option value="won" ${b.result === 'won' ? 'selected' : ''}>Won</option><option value="lost" ${b.result === 'lost' ? 'selected' : ''}>Lost</option><option value="void" ${b.result === 'void' ? 'selected' : ''}>Void</option></select></div></article>`).join('') : '<div class="slip-empty">No stakes recorded yet. Set a monthly limit, then track a selection from a fixture with matched odds.</div>';
 }
 function updateSelectionEstimate() {
-  const f = fixture(); const outcome = $('#selectionOutcome'); const stake = Number($('#stakeAmount').value);
+  const outcome = $('#selectionOutcome');
   const market = selectedMarket(); const options = (market?.odds || []).filter(x => x.price > 1); const pick = options[Number(outcome.value)]; const actualOdds = Number($('#actualOdds').value);
   if (pick) {
     const total = options.reduce((sum, x) => sum + 1 / x.price, 0); const probability = total ? (1 / pick.price) / total : 0;
     $('#selectionReason').textContent = `${market.bookmaker || 'External bookmaker'} lists ${market.label || market.key} at this price. ${pick.name}${pick.point != null ? ` ${pick.point}` : ''} has an estimated ${percent(probability)} market-implied share after removing the margin across these outcomes. This is bookmaker consensus context, not a validated AI pick or BetPawa price.`;
   }
-  $('#selectionEstimate').textContent = pick ? `External reference: ${Number(pick.price).toFixed(2)}. ${actualOdds > 1 && stake > 0 ? `Estimated return at your entered BetPawa price: ${ugx(stake * actualOdds)} (includes stake).` : 'Enter the odds shown on BetPawa and your stake to calculate an estimated return.'} No wager is placed by this app.` : 'Set your monthly limit in Finances before tracking a stake. No wager is placed by this app.';
+  $('#selectionEstimate').textContent = pick ? `Reference price ${Number(pick.price).toFixed(2)} at ${market.bookmaker || 'external bookmaker'}. Add this leg at the current BetPawa price you enter; combined odds and any stake estimate appear on the slip. No wager is placed by this app.` : 'Choose a market with published reference prices. No price or forecast will be invented.';
 }
 function renderWatchlist() {
   $('#watchlist').innerHTML = state.watch.map(id => allFixtures().find(f => f.id === id)).filter(Boolean).map(f => `<button class="watch-item" data-select="${escapeHTML(f.id)}"><i class="watch-mark"></i><span>${escapeHTML(f.home)} <small>${escapeHTML(f.time)} · ${escapeHTML(f.sport)}</small></span></button>`).join('') || '<div class="watch-item">No games pinned</div>';
@@ -146,7 +148,6 @@ function selectFixture(id) {
   outcomeSelect.disabled = !marketOutcomes.length;
   outcomeSelect.dataset.marketKey = allMarkets[0]?.key || '';
   $('#actualOdds').value = '';
-  $('#stakeAmount').value = '';
   $('#addToSlip').disabled = !marketOutcomes.length;
   $('#selectionReason').textContent = f.marketReference ? `Available bookmaker market prices are reference lines, not recommendations. Totals coverage varies; soccer BTTS can be requested for this game. Corners and card odds are not available in this connector. BetPawa may offer different prices.` : 'No odds matched this event. We will not invent a selection or price. Market availability depends on competition coverage.';
   updateSelectionEstimate();
@@ -161,7 +162,7 @@ function selectFixture(id) {
   $('#analysisPanel .subhead').firstElementChild.textContent = 'GAME DATA · NOT A PREDICTION';
   $('#analysisPanel .signal-row p').textContent = 'No authorized social, lineup, weather, bookmaker or independent forecast source is connected.';
   $('#showModel').disabled = true;
-  $('#stakeAmount').value = ''; $('#actualOdds').value = '';
+  $('#actualOdds').value = '';
   renderFixtures(); renderWatchlist();
 }
 function renderSources() {
@@ -170,25 +171,45 @@ function renderSources() {
 function renderSlip() {
   $('#slipCount').textContent = String(state.slip.length).padStart(2, '0');
   const combined = state.slip.length && state.slip.every(item => Number(item.odds) > 1) ? state.slip.reduce((product, item) => product * Number(item.odds), 1) : null;
-  $('#combinedOdds').textContent = `Combined odds: ${combined ? combined.toFixed(2) : '—'} · product of prices entered by you; verify live BetPawa prices before placing.`;
+  $('#combinedOdds').textContent = `Combined BetPawa odds: ${combined ? combined.toFixed(2) : '—'} · calculated from prices entered by you; verify every live price on BetPawa.`;
   $('#slipEmpty').style.display = state.slip.length ? 'none' : 'flex';
+  $('#slipSummary').hidden = !state.slip.length;
   $('#copySlip').disabled = !state.slip.length;
-  $('#slipItems').innerHTML = state.slip.map((s, i) => `<div class="slip-item"><span>${escapeHTML(s.sport.toUpperCase())}</span><span>${escapeHTML(s.fixture)}</span><small>${escapeHTML(s.market)}</small><b>${s.odds ? `@ ${escapeHTML(s.odds)}` : 'Odds not entered'}</b><button class="remove-slip" data-remove="${i}" aria-label="Remove ${escapeHTML(s.fixture)}">×</button></div>`).join('');
-  $$('[data-remove]').forEach(b => b.addEventListener('click', () => { state.slip.splice(Number(b.dataset.remove), 1); renderSlip(); }));
+  $('#slipItems').innerHTML = state.slip.map((s, i) => `<div class="slip-item"><span class="slip-sport">${escapeHTML(s.sport.toUpperCase())}</span><span class="slip-leg"><b>${escapeHTML(s.fixture)}</b><small>${escapeHTML(s.league || '')} · ${escapeHTML(s.market)}</small><small>${escapeHTML(s.reason || 'Market reference not available')}</small></span><b class="slip-odds">@ ${Number(s.odds).toFixed(2)}</b><button class="remove-slip" data-remove="${i}" aria-label="Remove ${escapeHTML(s.fixture)}">×</button></div>`).join('');
+  if (combined) {
+    const chance = 1 / combined; const risk = chance >= .5 ? ['LOW', 'Lower odds exposure', 0] : chance >= .2 ? ['MODERATE', 'Moderate odds exposure', 1] : chance >= .05 ? ['HIGH', 'High odds exposure', 2] : ['EXTREME', 'Extreme odds exposure', 3];
+    $('#riskLabel').textContent = risk[1]; $('#riskLabel').dataset.band = risk[0].toLowerCase(); $('#impliedChance').textContent = `${percent(chance)} odds-implied chance`;
+    $('#riskMarker').style.left = `${12.5 + risk[2] * 25}%`;
+    const meter = $('.risk-track'); meter.setAttribute('aria-valuenow', String(risk[2])); meter.setAttribute('aria-valuetext', `${risk[1]}; ${percent(chance)} odds-implied chance`);
+  } else { $('#riskLabel').textContent = 'Risk —'; $('#impliedChance').textContent = 'Odds-implied chance —'; $('#riskMarker').style.left = '0%'; }
+  updateSlipReturn();
+  $$('[data-remove]').forEach(b => b.addEventListener('click', () => { state.slip.splice(Number(b.dataset.remove), 1); saveSlip(); renderSlip(); }));
 }
 function addSelection() {
   const f = fixture(); if (!f) return;
-  if (!state.monthlyLimit) { toast('Set a monthly limit in Finances before recording a stake.'); setView('finance'); $('#monthlyBudget').focus(); return; }
-  const market = selectedMarket(); const options = (market?.odds || []).filter(x => x.price > 1); const pick = options[Number($('#selectionOutcome').value)]; const stake = Number($('#stakeAmount').value);
+  const market = selectedMarket(); const options = (market?.odds || []).filter(x => x.price > 1); const pick = options[Number($('#selectionOutcome').value)];
   const actualOdds = Number($('#actualOdds').value);
-  if (!pick || !Number.isFinite(stake) || stake <= 0 || !Number.isFinite(actualOdds) || actualOdds <= 1) { toast('Choose an outcome, enter the odds shown on BetPawa, and enter a stake.'); return; }
-  const monthEntries = state.ledger.filter(b => kampalaMonth(new Date(b.createdAt)) === kampalaMonth());
-  const used = monthEntries.reduce((sum, b) => sum + Number(b.stake || 0), 0);
-  if (stake + used > state.monthlyLimit) { toast(`That stake exceeds your remaining monthly limit of ${ugx(state.monthlyLimit - used)}.`); return; }
+  if (!pick || !Number.isFinite(actualOdds) || actualOdds <= 1) { toast('Choose a market outcome and enter the current BetPawa decimal odds for it.'); return; }
   const selection = `${market.label || market.key}: ${pick.name}${pick.point != null ? ` ${pick.point}` : ''}`;
-  const entry = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), fixture: `${f.home} vs ${f.away}`, sport: f.sport, selection, odds: actualOdds, marketOdds: Number(pick.price), stake, result: 'pending', bookmaker: 'BetPawa (entered by you)' };
-  state.ledger.push(entry); state.slip.push({ fixture: entry.fixture, sport: f.sport, market: selection, odds: entry.odds.toFixed(2) });
-  saveFinance(); renderFinance(); renderSlip(); $('#stakeAmount').value = ''; $('#actualOdds').value = ''; updateSelectionEstimate(); toast('Recorded in your private tracker. This has not placed a bet.');
+  const outcomes = options; const total = outcomes.reduce((sum, item) => sum + 1 / item.price, 0); const probability = total ? (1 / pick.price) / total : null;
+  state.slip.push({ fixture: `${f.home} vs ${f.away}`, league: f.league, sport: f.sport, market: selection, odds: actualOdds.toFixed(2), referenceOdds: Number(pick.price), referenceBookmaker: market.bookmaker || 'external bookmaker', reason: probability == null ? 'Reference price available; no probability estimate.' : `${market.bookmaker || 'External market'} reference ${Number(pick.price).toFixed(2)}; margin-removed market share ${percent(probability)}. This is market context, not an independent prediction.` });
+  saveSlip(); renderSlip(); $('#actualOdds').value = ''; updateSelectionEstimate(); $('#slipPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); toast('Added to your slip. Review the combined odds and confirm the price on BetPawa.');
+}
+function updateSlipReturn() {
+  const combined = state.slip.length && state.slip.every(item => Number(item.odds) > 1) ? state.slip.reduce((product, item) => product * Number(item.odds), 1) : 0;
+  const stake = Number($('#slipStake').value);
+  $('#slipReturn').textContent = stake > 0 && combined > 1 ? `Possible gross return: ${ugx(stake * combined)} · possible profit: ${ugx(stake * (combined - 1))}. Estimate only; BetPawa may calculate a different total.` : 'Enter a stake to see an estimated return and profit; this does not predict a win.';
+  $('#recordSlip').disabled = !Number.isFinite(stake) || stake <= 0 || !combined;
+}
+function recordSlip() {
+  const stake = Number($('#slipStake').value); const combined = state.slip.length ? state.slip.reduce((product, item) => product * Number(item.odds), 1) : 0;
+  if (!state.slip.length || !Number.isFinite(stake) || stake <= 0 || combined <= 1) { toast('Add priced picks and enter the stake for this complete slip.'); return; }
+  if (!state.monthlyLimit) { toast('Set your monthly limit in Finances before recording this stake.'); setView('finance'); $('#monthlyBudget').focus(); return; }
+  const used = state.ledger.filter(b => kampalaMonth(new Date(b.createdAt)) === kampalaMonth()).reduce((sum, b) => sum + Number(b.stake || 0), 0);
+  if (used + stake > state.monthlyLimit) { toast(`This exceeds your remaining monthly limit of ${ugx(state.monthlyLimit - used)}.`); return; }
+  const sports = [...new Set(state.slip.map(item => item.sport))];
+  state.ledger.push({ id: crypto.randomUUID(), createdAt: new Date().toISOString(), fixture: `${state.slip.length}-pick slip`, sport: sports.length === 1 ? sports[0] : 'mixed', selection: state.slip.map(item => `${item.fixture} — ${item.market} @ ${item.odds}`).join(' | '), odds: combined, stake, result: 'pending', bookmaker: 'BetPawa (entered by you)' });
+  saveFinance(); renderFinance(); state.slip = []; $('#slipStake').value = ''; saveSlip(); renderSlip(); toast('Recorded one stake for the combined slip in your private tracker.');
 }
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('show'), 3000); }
 function setView(name) {
@@ -269,8 +290,9 @@ function init() {
   $('#selectionOutcome').addEventListener('change', updateSelectionEstimate);
   $('#selectionMarket').addEventListener('change', renderMarketOutcomes);
   $('#loadBtts').addEventListener('click', loadBtts);
-  $('#stakeAmount').addEventListener('input', updateSelectionEstimate);
   $('#actualOdds').addEventListener('input', updateSelectionEstimate);
+  $('#slipStake').addEventListener('input', updateSlipReturn);
+  $('#recordSlip').addEventListener('click', recordSlip);
   $('#budgetForm').addEventListener('submit', e => {
     e.preventDefault(); const budget = Number($('#monthlyBudget').value);
     if (!Number.isFinite(budget) || budget <= 0) { toast('Enter a monthly limit greater than zero.'); return; }
@@ -283,7 +305,8 @@ function init() {
   });
   $('#copySlip').addEventListener('click', async () => {
     const combined = state.slip.length && state.slip.every(item => Number(item.odds) > 1) ? state.slip.reduce((product, item) => product * Number(item.odds), 1) : null;
-    const text = ['Manual BetPawa entry worksheet (not a booking code)', ...state.slip.map((s, i) => `${i + 1}. ${s.fixture} — ${s.market}${s.odds ? ` @ ${s.odds}` : ''}`), ...(combined ? [`Combined decimal odds: ${combined.toFixed(2)}`] : []), '', 'Verify each price and selection directly on BetPawa; odds can change.'];
+    const chance = combined ? 1 / combined : null;
+    const text = ['MANUAL BETPAWA SLIP (not a booking code)', ...state.slip.map((s, i) => `${i + 1}. ${s.sport.toUpperCase()} — ${s.fixture} — ${s.market} @ ${Number(s.odds).toFixed(2)}\n   Market context: ${s.reason}`), ...(combined ? [`Combined decimal odds: ${combined.toFixed(2)}`, `Odds-implied chance: ${percent(chance)} (not an independent prediction)`] : []), '', 'Verify each selection and price directly on BetPawa; prices and availability can change.'];
     try { await navigator.clipboard.writeText(text.join('\n')); toast('Selection details copied. BetPawa booking codes must be created on BetPawa.'); } catch { toast('Clipboard access unavailable. Copy the listed selections manually.'); }
   });
   $('#starButton').addEventListener('click', () => { const id = state.fixtureId; if (!id) return; state.watch = state.watch.includes(id) ? state.watch.filter(x => x !== id) : [...state.watch, id]; renderWatchlist(); });
