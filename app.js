@@ -220,11 +220,15 @@ function renderSources() {
 function renderSlip() {
   $('#slipCount').textContent = String(state.slip.length).padStart(2, '0');
   const combined = state.slip.length && state.slip.every(item => Number(item.odds) > 1) ? state.slip.reduce((product, item) => product * Number(item.odds), 1) : null;
-  $('#combinedOdds').textContent = `Combined BetPawa odds: ${combined ? combined.toFixed(2) : '—'} · calculated from prices entered by you; verify every live price on BetPawa.`;
+  $('#combinedOdds').textContent = `Combined odds: ${combined ? combined.toFixed(2) : '—'} · verify prices on BetPawa. Update each result manually, whether or not you staked.`;
   $('#slipEmpty').style.display = state.slip.length ? 'none' : 'flex';
   $('#slipSummary').hidden = !state.slip.length;
   $('#copySlip').disabled = !state.slip.length;
-  $('#slipItems').innerHTML = state.slip.map((s, i) => `<div class="slip-item"><span class="slip-sport">${escapeHTML(s.sport.toUpperCase())}</span><span class="slip-leg"><b>${escapeHTML(s.fixture)}</b><small>${escapeHTML(s.league || '')} · ${escapeHTML(s.market)}</small><small>${escapeHTML(s.reason || 'Market reference not available')}</small></span><b class="slip-odds">@ ${Number(s.odds).toFixed(2)}</b><button class="remove-slip" data-remove="${i}" aria-label="Remove ${escapeHTML(s.fixture)}">×</button></div>`).join('');
+  $('#slipItems').innerHTML = state.slip.map((s, i) => {
+    const status = ['success', 'failed'].includes(s.status) ? s.status : 'pending';
+    const statusLabel = status === 'success' ? 'Successful' : status === 'failed' ? 'Failed' : 'Pending';
+    return `<div class="slip-item"><span class="slip-sport">${escapeHTML(s.sport.toUpperCase())}</span><span class="slip-leg"><b>${escapeHTML(s.fixture)}</b><small>${escapeHTML(s.league || '')} · ${escapeHTML(s.market)}</small><small>${escapeHTML(s.reason || 'Market reference not available')}</small></span><b class="slip-odds">@ ${Number(s.odds).toFixed(2)}</b><label class="slip-status"><span class="status-dot status-${status}" aria-hidden="true"></span><span class="sr-only">${statusLabel}</span><select data-slip-status="${i}" aria-label="Tracking result for ${escapeHTML(s.fixture)}"><option value="pending" ${status === 'pending' ? 'selected' : ''}>Pending</option><option value="success" ${status === 'success' ? 'selected' : ''}>Successful</option><option value="failed" ${status === 'failed' ? 'selected' : ''}>Failed</option></select></label><button class="remove-slip" data-remove="${i}" aria-label="Remove ${escapeHTML(s.fixture)}">×</button></div>`;
+  }).join('');
   if (combined) {
     const chance = 1 / combined; const risk = chance >= .5 ? ['LOW', 'Lower odds exposure', 0] : chance >= .2 ? ['MODERATE', 'Moderate odds exposure', 1] : chance >= .05 ? ['HIGH', 'High odds exposure', 2] : ['EXTREME', 'Extreme odds exposure', 3];
     $('#riskLabel').textContent = risk[1]; $('#riskLabel').dataset.band = risk[0].toLowerCase(); $('#impliedChance').textContent = `${percent(chance)} odds-implied chance`;
@@ -233,6 +237,13 @@ function renderSlip() {
   } else { $('#riskLabel').textContent = 'Risk —'; $('#impliedChance').textContent = 'Odds-implied chance —'; $('#riskMarker').style.left = '0%'; }
   updateSlipReturn();
   $$('[data-remove]').forEach(b => b.addEventListener('click', () => { state.slip.splice(Number(b.dataset.remove), 1); saveSlip(); renderSlip(); }));
+  $$('[data-slip-status]').forEach(select => select.addEventListener('change', () => {
+    const item = state.slip[Number(select.dataset.slipStatus)];
+    if (!item) return;
+    item.status = select.value;
+    saveSlip();
+    renderSlip();
+  }));
 }
 function marketCandidates() {
   return state.liveFixtures.flatMap(game => {
